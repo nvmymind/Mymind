@@ -11,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ko">
       <body className="antialiased">
-        <div className="mx-auto min-h-dvh max-w-lg border-x border-[var(--border)]">
+        <div className="mx-auto min-h-dvh w-full max-w-3xl md:max-w-5xl lg:max-w-none">
           {children}
           <AppNav />
         </div>

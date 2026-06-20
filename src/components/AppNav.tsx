@@ -11,7 +11,7 @@ const links = [
 
 export function AppNav() {
   const pathname = usePathname();
-  if (pathname === "/") return null;
+  if (pathname === "/" || pathname.startsWith("/words/")) return null;
 
   return (
     <nav className="fixed bottom-0 left-1/2 z-50 flex w-full max-w-lg -translate-x-1/2 border-t border-[var(--border)] bg-[var(--background)]">

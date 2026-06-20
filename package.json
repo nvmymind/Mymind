@@ -21,10 +21,7 @@
     "next": "^15.3.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-force-graph-3d": "^1.29.1",
     "swr": "^2.3.3",
-    "three": "^0.184.0",
-    "three-spritetext": "^1.10.0",
     "zod": "^3.25.36"
   },
   "devDependencies": {
@@ -33,7 +30,6 @@
     "@types/node": "^22.15.21",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.5",
-    "@types/three": "^0.184.1",
     "eslint": "^9.27.0",
     "eslint-config-next": "^15.3.3",
     "prisma": "^6.9.0",

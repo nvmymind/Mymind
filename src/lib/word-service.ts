@@ -348,12 +348,12 @@ export async function getTrendingMindMap(limit = 10): Promise<MindMapGraph> {
   const links: MindMapLink[] = [];
   const linkKeys = new Set<string>();
 
-  for (const item of trending.items) {
+  for (const [index, item] of trending.items.entries()) {
     nodeMap.set(item.id, {
       id: item.id,
       text: item.text,
       empathyCount: item.empathyCount,
-      group: "trending",
+      group: index === 0 ? "center" : "trending",
     });
 
     const connections = await prisma.wordConnection.findMany({
@@ -384,6 +384,10 @@ export async function getTrendingMindMap(limit = 10): Promise<MindMapGraph> {
     }
   }
 
-  return { nodes: [...nodeMap.values()], links };
+  return {
+    nodes: [...nodeMap.values()],
+    links,
+    centerId: trending.items[0]?.id,
+  };
 }
 
