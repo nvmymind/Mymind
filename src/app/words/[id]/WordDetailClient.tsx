@@ -1,11 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
 import { useMemo, useState } from "react";
-import { MindMap2D } from "@/components/MindMap2D";
+import { ConnectWordDialog } from "@/components/ConnectWordDialog";
 import { EmpathyButton } from "@/components/EmpathyButton";
+import { MindMap2D } from "@/components/MindMap2D";
+import { NodeContextMenu } from "@/components/NodeContextMenu";
+import { WordSearchBar } from "@/components/WordSearchBar";
+import type { SuggestItem } from "@/components/WordSuggestInput";
 import {
   buildMindMapFromWordDetail,
   type MindMapGraph,
@@ -30,32 +34,58 @@ type WordDetailResponse = {
   userWordEmpathized: boolean;
 };
 
+type ContextMenuState = { node: MindMapNode; x: number; y: number };
+type ConnectTarget = { id: string; text: string };
+
 export default function WordDetailClient() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const direction = searchParams.get("direction") === "in" ? "in" : "out";
   const [showPanel, setShowPanel] = useState(false);
-  const [newConnection, setNewConnection] = useState("");
   const [showReport, setShowReport] = useState(false);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [connectTarget, setConnectTarget] = useState<ConnectTarget | null>(null);
 
   const { data, mutate } = useSWR<WordDetailResponse>(
-    id ? `/api/v1/words/${id}?direction=${direction}` : null,
+    id ? `/api/v1/words/${id}?direction=out` : null,
     fetcher,
   );
 
   const { data: mindmap, mutate: mutateMap } = useSWR<MindMapGraph>(
-    id ? `/api/v1/mindmap?wordId=${id}&direction=${direction}` : null,
+    id ? `/api/v1/mindmap?wordId=${id}&direction=out` : null,
     fetcher,
   );
 
   const graph = useMemo(() => {
     if (mindmap?.nodes?.length) return mindmap;
     if (data?.word && data.connections) {
-      return buildMindMapFromWordDetail(data.word, data.connections, direction);
+      return buildMindMapFromWordDetail(data.word, data.connections, "out");
     }
     return null;
-  }, [mindmap, data, direction]);
+  }, [mindmap, data]);
+
+  const connectRecommendations = useMemo(() => {
+    if (!graph || !connectTarget) return [] as SuggestItem[];
+
+    const linkedIds = new Set<string>();
+    if (connectTarget.id === data?.word.id) {
+      data?.connections.forEach((c) => linkedIds.add(c.word.id));
+    } else {
+      graph.links.forEach((link) => {
+        if (link.source === connectTarget.id) linkedIds.add(link.target);
+        if (link.target === connectTarget.id) linkedIds.add(link.source);
+      });
+    }
+
+    return graph.nodes
+      .filter((n) => n.id !== connectTarget.id && !linkedIds.has(n.id))
+      .slice(0, 8)
+      .map((n) => ({
+        id: n.id,
+        text: n.text,
+        empathyCount: n.empathyCount,
+        badge: "추천",
+      }));
+  }, [graph, connectTarget, data]);
 
   async function toggleWordEmpathy() {
     if (!data?.word) return;
@@ -91,29 +121,38 @@ export default function WordDetailClient() {
     }
   }
 
-  async function addConnection() {
-    const res = await fetch(`/api/v1/words/${id}/connections`, {
+  async function addConnection(sourceWordId: string, targetText: string) {
+    const res = await fetch(`/api/v1/words/${sourceWordId}/connections`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetText: newConnection }),
+      body: JSON.stringify({ targetText }),
     });
     if (res.status === 401) {
       alert("연결을 추가하려면 본인인증이 필요합니다.");
-      return;
+      return false;
     }
     const body = await res.json();
     if (!res.ok) {
       alert(body.error ?? "등록에 실패했습니다.");
-      return;
+      return false;
     }
-    setNewConnection("");
     mutate();
     mutateMap();
+    return true;
   }
 
   function handleNodeClick(node: MindMapNode) {
     if (node.group === "center") return;
-    router.push(`/words/${node.id}?direction=out`);
+    router.push(`/words/${node.id}`);
+  }
+
+  function handleNodeContextMenu(node: MindMapNode, e: React.MouseEvent) {
+    setContextMenu({ node, x: e.clientX, y: e.clientY });
+  }
+
+  function focusNode(node: MindMapNode) {
+    if (node.id === id) return;
+    router.push(`/words/${node.id}`);
   }
 
   if (!data?.word || !graph) {
@@ -135,20 +174,7 @@ export default function WordDetailClient() {
         >
           🏠 홈
         </Link>
-        <div className="flex min-w-0 flex-1 justify-center gap-2 text-xs">
-          <Link
-            href={`/words/${id}?direction=out`}
-            className={`rounded-full px-2.5 py-1 ${direction === "out" ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"}`}
-          >
-            나가는
-          </Link>
-          <Link
-            href={`/words/${id}?direction=in`}
-            className={`rounded-full px-2.5 py-1 ${direction === "in" ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"}`}
-          >
-            들어오는
-          </Link>
-        </div>
+        <WordSearchBar className="min-w-0 flex-1" />
         <button
           type="button"
           onClick={() => setShowPanel((v) => !v)}
@@ -160,17 +186,38 @@ export default function WordDetailClient() {
 
       <div className="relative min-h-0 flex-1 basis-0">
         <MindMap2D
-          key={`${id}-${direction}`}
+          key={id}
           graph={graph}
           onNodeClick={handleNodeClick}
+          onNodeContextMenu={handleNodeContextMenu}
           className="absolute inset-0"
         />
         {linkedCount === 0 && (
           <p className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-xs text-[var(--muted)]">
-            연결 단어가 없습니다 · ⚙️에서 추가
+            우클릭으로 연결 단어 추가
           </p>
         )}
       </div>
+
+      {contextMenu && (
+        <NodeContextMenu
+          node={contextMenu.node}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          onFocus={focusNode}
+          onConnect={(node) => setConnectTarget({ id: node.id, text: node.text })}
+        />
+      )}
+
+      {connectTarget && (
+        <ConnectWordDialog
+          sourceText={connectTarget.text}
+          recommendations={connectRecommendations}
+          onClose={() => setConnectTarget(null)}
+          onConnect={(text) => addConnection(connectTarget.id, text)}
+        />
+      )}
 
       {showPanel && (
         <div className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] p-3 pb-20">
@@ -178,7 +225,7 @@ export default function WordDetailClient() {
             {data.word.text}{" "}
             <span className="font-normal text-[var(--muted)]">❤️ {data.word.empathyCount}</span>
           </p>
-          <div className="mb-3 flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2">
             <EmpathyButton
               empathized={data.userWordEmpathized}
               onClick={toggleWordEmpathy}
@@ -193,21 +240,6 @@ export default function WordDetailClient() {
                 🚩 신고
               </button>
             )}
-          </div>
-          <div className="flex gap-2">
-            <input
-              value={newConnection}
-              onChange={(e) => setNewConnection(e.target.value)}
-              placeholder="연결 단어"
-              className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--card)] px-3 py-2 text-sm"
-            />
-            <button
-              type="button"
-              onClick={addConnection}
-              className="rounded-lg bg-[var(--accent)] px-3 py-2 text-sm text-white"
-            >
-              추가
-            </button>
           </div>
         </div>
       )}
@@ -233,7 +265,11 @@ export default function WordDetailClient() {
                 </button>
               ))}
             </div>
-            <button type="button" onClick={() => setShowReport(false)} className="mt-4 w-full py-2 text-sm text-[var(--muted)]">
+            <button
+              type="button"
+              onClick={() => setShowReport(false)}
+              className="mt-4 w-full py-2 text-sm text-[var(--muted)]"
+            >
               취소
             </button>
           </div>

@@ -7,13 +7,104 @@ import { computeRadialLayout } from "@/lib/mindmap-layout";
 type Props = {
   graph: MindMapGraph;
   onNodeClick: (node: MindMapNode) => void;
+  onNodeContextMenu?: (node: MindMapNode, e: React.MouseEvent) => void;
   className?: string;
 };
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
 
-export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
+function MapNode({
+  node,
+  x,
+  y,
+  fontSize,
+  isCenter,
+  onNodeClick,
+  onNodeContextMenu,
+}: {
+  node: MindMapNode;
+  x: number;
+  y: number;
+  fontSize: number;
+  isCenter: boolean;
+  onNodeClick: (node: MindMapNode) => void;
+  onNodeContextMenu?: (node: MindMapNode, e: React.MouseEvent) => void;
+}) {
+  const longPressRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const padX = Math.max(8, fontSize * 0.5);
+  const padY = Math.max(5, fontSize * 0.35);
+  const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
+  const textH = fontSize + padY * 2;
+
+  const openMenu = (clientX: number, clientY: number) => {
+    if (!onNodeContextMenu) return;
+    onNodeContextMenu(node, {
+      clientX,
+      clientY,
+      preventDefault: () => undefined,
+      stopPropagation: () => undefined,
+    } as React.MouseEvent);
+  };
+
+  return (
+    <g
+      data-node
+      transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
+      className="cursor-pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        if (longPressRef.current) {
+          longPressRef.current = false;
+          return;
+        }
+        onNodeClick(node);
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        openMenu(e.clientX, e.clientY);
+      }}
+      onPointerDown={(e) => {
+        if (!onNodeContextMenu) return;
+        timerRef.current = setTimeout(() => {
+          longPressRef.current = true;
+          openMenu(e.clientX, e.clientY);
+        }, 480);
+      }}
+      onPointerUp={() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      }}
+      onPointerLeave={() => {
+        if (timerRef.current) clearTimeout(timerRef.current);
+      }}
+    >
+      <rect
+        width={textW}
+        height={textH}
+        rx={textH / 2}
+        fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
+        stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
+        strokeWidth={isCenter ? 2.5 : 1}
+      />
+      <text
+        x={textW / 2}
+        y={textH / 2 + fontSize * 0.32}
+        textAnchor="middle"
+        fill="#f0f3f5"
+        fontSize={fontSize}
+        fontWeight={isCenter ? 700 : 500}
+        fontFamily={FONT}
+      >
+        {node.text}
+      </text>
+    </g>
+  );
+}
+
+export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 360, h: 640 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -107,45 +198,18 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
             />
           ))}
 
-          {layout.nodes.map(({ node, x, y, fontSize, isCenter }) => {
-            const padX = Math.max(8, fontSize * 0.5);
-            const padY = Math.max(5, fontSize * 0.35);
-            const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
-            const textH = fontSize + padY * 2;
-
-            return (
-              <g
-                key={node.id}
-                data-node
-                transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
-                className="cursor-pointer"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onNodeClick(node);
-                }}
-              >
-                <rect
-                  width={textW}
-                  height={textH}
-                  rx={textH / 2}
-                  fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
-                  stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
-                  strokeWidth={isCenter ? 2.5 : 1}
-                />
-                <text
-                  x={textW / 2}
-                  y={textH / 2 + fontSize * 0.32}
-                  textAnchor="middle"
-                  fill="#f0f3f5"
-                  fontSize={fontSize}
-                  fontWeight={isCenter ? 700 : 500}
-                  fontFamily={FONT}
-                >
-                  {node.text}
-                </text>
-              </g>
-            );
-          })}
+          {layout.nodes.map(({ node, x, y, fontSize, isCenter }) => (
+            <MapNode
+              key={node.id}
+              node={node}
+              x={x}
+              y={y}
+              fontSize={fontSize}
+              isCenter={isCenter}
+              onNodeClick={onNodeClick}
+              onNodeContextMenu={onNodeContextMenu}
+            />
+          ))}
         </svg>
       </div>
 
@@ -158,7 +222,7 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
       </button>
 
       <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-[var(--muted)]">
-        연결 단어 탭 → 중심 이동 · 드래그 → 화면 이동
+        클릭 → 중심 이동 · 우클릭/길게누르기 → 메뉴 · 드래그 → 화면 이동
       </p>
     </div>
   );
