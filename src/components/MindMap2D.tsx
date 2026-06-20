@@ -2,25 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
-import { computeRadialLayout, type LayoutNode } from "@/lib/mindmap-layout";
+import { computeNodeBox, computeRadialLayout, type LayoutNode } from "@/lib/mindmap-layout";
 
 type Props = {
   graph: MindMapGraph;
-  onNodeClick: (node: MindMapNode) => void;
-  onNodeContextMenu?: (node: MindMapNode, e: React.MouseEvent) => void;
+  centerId?: string;
+  onNodeClick?: (node: MindMapNode) => void;
+  onNodeDoubleClick?: (node: MindMapNode) => void;
   className?: string;
 };
 
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
-
-function nodeMetrics(node: MindMapNode, fontSize: number) {
-  const padX = Math.max(8, fontSize * 0.5);
-  const padY = Math.max(5, fontSize * 0.35);
-  const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
-  const textH = fontSize + padY * 2;
-  return { padX, padY, textW, textH };
-}
+const DOUBLE_CLICK_MS = 320;
 
 function hitTestNode(
   svg: SVGSVGElement,
@@ -38,7 +32,7 @@ function hitTestNode(
 
   for (let i = layoutNodes.length - 1; i >= 0; i -= 1) {
     const { node, x, y, fontSize } = layoutNodes[i];
-    const { textW, textH } = nodeMetrics(node, fontSize);
+    const { textW, textH } = computeNodeBox(node, fontSize);
     const left = x - textW / 2;
     const top = y - textH / 2;
     if (local.x >= left && local.x <= left + textW && local.y >= top && local.y <= top + textH) {
@@ -54,16 +48,16 @@ function MapNode({
   y,
   fontSize,
   isCenter,
-  onNodeClick,
+  onTap,
 }: {
   node: MindMapNode;
   x: number;
   y: number;
   fontSize: number;
   isCenter: boolean;
-  onNodeClick: (node: MindMapNode) => void;
+  onTap: (node: MindMapNode) => void;
 }) {
-  const { textW, textH } = nodeMetrics(node, fontSize);
+  const { textW, textH } = computeNodeBox(node, fontSize);
 
   return (
     <g
@@ -72,7 +66,7 @@ function MapNode({
       className="cursor-pointer"
       onClick={(e) => {
         e.stopPropagation();
-        onNodeClick(node);
+        onTap(node);
       }}
     >
       <rect
@@ -99,13 +93,16 @@ function MapNode({
   );
 }
 
-export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "" }: Props) {
+export function MindMap2D({
+  graph,
+  centerId,
+  onNodeClick,
+  onNodeDoubleClick,
+  className = "",
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; suppressClick: boolean }>({
-    timer: null,
-    suppressClick: false,
-  });
+  const clickRef = useRef<{ nodeId: string; timer: ReturnType<typeof setTimeout> } | null>(null);
   const [size, setSize] = useState({ w: 360, h: 640 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; px: number; py: number } | null>(
@@ -142,18 +139,7 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
     setPan({ x: 0, y: 0 });
   }, [graph, size.w, size.h]);
 
-  const openMenuAt = useCallback(
-    (node: MindMapNode, clientX: number, clientY: number) => {
-      if (!onNodeContextMenu) return;
-      onNodeContextMenu(node, {
-        clientX,
-        clientY,
-        preventDefault: () => undefined,
-        stopPropagation: () => undefined,
-      } as React.MouseEvent);
-    },
-    [onNodeContextMenu],
-  );
+  const resetPan = useCallback(() => setPan({ x: 0, y: 0 }), []);
 
   const pickNodeAt = useCallback(
     (clientX: number, clientY: number) => {
@@ -164,55 +150,48 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
     [layout.nodes],
   );
 
-  useEffect(() => {
-    const root = containerRef.current;
-    if (!root || !onNodeContextMenu) return;
-
-    const handleContextMenu = (e: MouseEvent) => {
-      const node = pickNodeAt(e.clientX, e.clientY);
-      if (!node) return;
-      e.preventDefault();
-      e.stopPropagation();
-      openMenuAt(node, e.clientX, e.clientY);
-    };
-
-    root.addEventListener("contextmenu", handleContextMenu, true);
-    return () => root.removeEventListener("contextmenu", handleContextMenu, true);
-  }, [onNodeContextMenu, openMenuAt, pickNodeAt]);
-
-  const clearLongPress = () => {
-    if (longPressRef.current.timer) {
-      clearTimeout(longPressRef.current.timer);
-      longPressRef.current.timer = null;
-    }
-  };
-
-  const resetPan = useCallback(() => setPan({ x: 0, y: 0 }), []);
-
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      const node = pickNodeAt(e.clientX, e.clientY);
-
-      if (node && onNodeContextMenu && e.button === 0) {
-        longPressRef.current.suppressClick = false;
-        clearLongPress();
-        longPressRef.current.timer = setTimeout(() => {
-          longPressRef.current.suppressClick = true;
-          openMenuAt(node, e.clientX, e.clientY);
-        }, 500);
+  const handleNodeTap = useCallback(
+    (node: MindMapNode) => {
+      const pending = clickRef.current;
+      if (pending?.nodeId === node.id) {
+        clearTimeout(pending.timer);
+        clickRef.current = null;
+        onNodeDoubleClick?.(node);
         return;
       }
 
-      if (node) return;
+      clickRef.current = {
+        nodeId: node.id,
+        timer: setTimeout(() => {
+          clickRef.current = null;
+          if (node.id === centerId) {
+            resetPan();
+            return;
+          }
+          onNodeClick?.(node);
+        }, DOUBLE_CLICK_MS),
+      };
+    },
+    [centerId, onNodeClick, onNodeDoubleClick, resetPan],
+  );
 
+  useEffect(
+    () => () => {
+      if (clickRef.current) clearTimeout(clickRef.current.timer);
+    },
+    [],
+  );
+
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (pickNodeAt(e.clientX, e.clientY)) return;
       dragRef.current = { startX: e.clientX, startY: e.clientY, px: pan.x, py: pan.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [onNodeContextMenu, openMenuAt, pan.x, pan.y, pickNodeAt],
+    [pan.x, pan.y, pickNodeAt],
   );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
-    if (longPressRef.current.timer) clearLongPress();
     if (!dragRef.current) return;
     setPan({
       x: dragRef.current.px + (e.clientX - dragRef.current.startX),
@@ -221,7 +200,6 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
   }, []);
 
   const onPointerUp = useCallback(() => {
-    clearLongPress();
     dragRef.current = null;
   }, []);
 
@@ -267,13 +245,7 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
               y={y}
               fontSize={fontSize}
               isCenter={isCenter}
-              onNodeClick={(n) => {
-                if (longPressRef.current.suppressClick) {
-                  longPressRef.current.suppressClick = false;
-                  return;
-                }
-                onNodeClick(n);
-              }}
+              onTap={handleNodeTap}
             />
           ))}
         </svg>
@@ -288,7 +260,7 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
       </button>
 
       <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-[var(--muted)]">
-        클릭 → 중심 이동 · 우클릭/길게누르기 → 메뉴 · 드래그 → 화면 이동
+        클릭 → 중심 이동 · 더블클릭 → 연결 추가 · 드래그 → 화면 이동
       </p>
     </div>
   );

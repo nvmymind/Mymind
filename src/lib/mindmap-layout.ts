@@ -28,6 +28,15 @@ const MIN_FONT = 11;
 const CENTER_FONT = 18;
 const SATELLITE_FONT = 13;
 
+/** 노드 pill 크기 — 렌더·히트테스트 공통 */
+export function computeNodeBox(node: MindMapNode, fontSize: number) {
+  const padX = Math.max(12, fontSize * 0.72);
+  const padY = Math.max(7, fontSize * 0.5);
+  const textW = Math.max(fontSize * 2.4, node.text.length * fontSize * 0.78 + padX * 2);
+  const textH = fontSize + padY * 2;
+  return { padX, padY, textW, textH };
+}
+
 function ringCapacity(ringIndex: number) {
   return ringIndex === 0 ? 8 : ringIndex === 1 ? 14 : 18;
 }

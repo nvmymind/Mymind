@@ -7,7 +7,6 @@ import { useMemo, useState } from "react";
 import { ConnectWordDialog } from "@/components/ConnectWordDialog";
 import { EmpathyButton } from "@/components/EmpathyButton";
 import { MindMap2D } from "@/components/MindMap2D";
-import { NodeContextMenu } from "@/components/NodeContextMenu";
 import { WordSearchBar } from "@/components/WordSearchBar";
 import type { SuggestItem } from "@/components/WordSuggestInput";
 import { useTrendingSuggestions } from "@/hooks/useTrendingSuggestions";
@@ -35,7 +34,6 @@ type WordDetailResponse = {
   userWordEmpathized: boolean;
 };
 
-type ContextMenuState = { node: MindMapNode; x: number; y: number };
 type ConnectTarget = { id: string; text: string };
 
 export default function WordDetailClient() {
@@ -43,7 +41,6 @@ export default function WordDetailClient() {
   const router = useRouter();
   const [showPanel, setShowPanel] = useState(false);
   const [showReport, setShowReport] = useState(false);
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [connectTarget, setConnectTarget] = useState<ConnectTarget | null>(null);
   const trendingSuggestions = useTrendingSuggestions(10, !!connectTarget);
 
@@ -158,17 +155,11 @@ export default function WordDetailClient() {
   }
 
   function handleNodeClick(node: MindMapNode) {
-    if (node.group === "center") return;
     router.push(`/words/${node.id}`);
   }
 
-  function handleNodeContextMenu(node: MindMapNode, e: React.MouseEvent) {
-    setContextMenu({ node, x: e.clientX, y: e.clientY });
-  }
-
-  function focusNode(node: MindMapNode) {
-    if (node.id === id) return;
-    router.push(`/words/${node.id}`);
+  function handleNodeDoubleClick(node: MindMapNode) {
+    setConnectTarget({ id: node.id, text: node.text });
   }
 
   if (!data?.word || !graph) {
@@ -204,27 +195,17 @@ export default function WordDetailClient() {
         <MindMap2D
           key={id}
           graph={graph}
+          centerId={id}
           onNodeClick={handleNodeClick}
-          onNodeContextMenu={handleNodeContextMenu}
+          onNodeDoubleClick={handleNodeDoubleClick}
           className="absolute inset-0"
         />
         {linkedCount === 0 && (
           <p className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-xs text-[var(--muted)]">
-            우클릭으로 연결 단어 추가
+            더블클릭으로 연결 단어 추가
           </p>
         )}
       </div>
-
-      {contextMenu && (
-        <NodeContextMenu
-          node={contextMenu.node}
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          onFocus={focusNode}
-          onConnect={(node) => setConnectTarget({ id: node.id, text: node.text })}
-        />
-      )}
 
       {connectTarget && (
         <ConnectWordDialog
