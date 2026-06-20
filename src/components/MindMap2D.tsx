@@ -13,16 +13,17 @@ type Props = {
 export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 360, h: 500 });
-  const [viewX, setViewX] = useState(0);
-  const [viewY, setViewY] = useState(0);
-  const dragRef = useRef<{ startX: number; startY: number; vx: number; vy: number } | null>(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; px: number; py: number } | null>(null);
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const ro = new ResizeObserver((entries) => {
       const { width, height } = entries[0].contentRect;
-      setSize({ w: Math.max(320, width), h: Math.max(320, height) });
+      if (width > 0 && height > 0) {
+        setSize({ w: width, h: height });
+      }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -34,32 +35,27 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
   );
 
   useEffect(() => {
-    setViewX(layout.centerX - size.w / 2);
-    setViewY(layout.centerY - size.h / 2);
-  }, [layout.centerX, layout.centerY, size.w, size.h, graph]);
+    setPan({ x: 0, y: 0 });
+  }, [graph, size.w, size.h]);
 
-  const centerToView = useCallback(() => {
-    setViewX(layout.centerX - size.w / 2);
-    setViewY(layout.centerY - size.h / 2);
-  }, [layout.centerX, layout.centerY, size.w, size.h]);
+  const resetPan = useCallback(() => setPan({ x: 0, y: 0 }), []);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if ((e.target as HTMLElement).closest("[data-node]")) return;
-      dragRef.current = { startX: e.clientX, startY: e.clientY, vx: viewX, vy: viewY };
+      dragRef.current = { startX: e.clientX, startY: e.clientY, px: pan.x, py: pan.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [viewX, viewY],
+    [pan.x, pan.y],
   );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current) return;
-    const scale = size.w / (containerRef.current?.clientWidth ?? size.w);
-    const dx = (e.clientX - dragRef.current.startX) * scale;
-    const dy = (e.clientY - dragRef.current.startY) * scale;
-    setViewX(dragRef.current.vx - dx);
-    setViewY(dragRef.current.vy - dy);
-  }, [size.w]);
+    setPan({
+      x: dragRef.current.px + (e.clientX - dragRef.current.startX),
+      y: dragRef.current.py + (e.clientY - dragRef.current.startY),
+    });
+  }, []);
 
   const onPointerUp = useCallback(() => {
     dragRef.current = null;
@@ -74,88 +70,81 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
-      <svg
-        width="100%"
-        height="100%"
-        viewBox={`${viewX} ${viewY} ${size.w} ${size.h}`}
-        preserveAspectRatio="xMidYMid slice"
+      <div
+        className="absolute inset-0"
+        style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
       >
-        {layout.links.map((link, i) => (
-          <line
-            key={i}
-            x1={link.source.x}
-            y1={link.source.y}
-            x2={link.target.x}
-            y2={link.target.y}
-            stroke="rgba(29, 155, 240, 0.4)"
-            strokeWidth={Math.max(1, Math.min(3, Math.log2(link.empathyCount + 1)))}
-          />
-        ))}
+        <svg
+          width={size.w}
+          height={size.h}
+          viewBox={`0 0 ${layout.width} ${layout.height}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="block h-full w-full"
+        >
+          {layout.links.map((link, i) => (
+            <line
+              key={i}
+              x1={link.source.x}
+              y1={link.source.y}
+              x2={link.target.x}
+              y2={link.target.y}
+              stroke="rgba(29, 155, 240, 0.4)"
+              strokeWidth={Math.max(1, Math.min(3, Math.log2(link.empathyCount + 1)))}
+            />
+          ))}
 
-        {layout.nodes.map(({ node, x, y, fontSize, isCenter }) => {
-          const padX = Math.max(8, fontSize * 0.55);
-          const padY = Math.max(4, fontSize * 0.35);
-          const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
-          const textH = fontSize + padY * 2;
+          {layout.nodes.map(({ node, x, y, fontSize, isCenter }) => {
+            const padX = Math.max(8, fontSize * 0.5);
+            const padY = Math.max(5, fontSize * 0.35);
+            const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
+            const textH = fontSize + padY * 2;
 
-          return (
-            <g
-              key={node.id}
-              data-node
-              transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
-              className="cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                onNodeClick(node);
-              }}
-            >
-              <rect
-                width={textW}
-                height={textH}
-                rx={textH / 2}
-                fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
-                stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
-                strokeWidth={isCenter ? 2.5 : 1}
-              />
-              <text
-                x={textW / 2}
-                y={textH / 2 + fontSize * 0.32}
-                textAnchor="middle"
-                fill="#f0f3f5"
-                fontSize={fontSize}
-                fontWeight={isCenter ? 700 : 500}
+            return (
+              <g
+                key={node.id}
+                data-node
+                transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
+                className="cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNodeClick(node);
+                }}
               >
-                {node.text}
-              </text>
-              {!isCenter && (
+                <rect
+                  width={textW}
+                  height={textH}
+                  rx={textH / 2}
+                  fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
+                  stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
+                  strokeWidth={isCenter ? 2.5 : 1}
+                />
                 <text
                   x={textW / 2}
-                  y={textH + fontSize * 0.55}
+                  y={textH / 2 + fontSize * 0.32}
                   textAnchor="middle"
-                  fill="rgba(139,152,165,0.9)"
-                  fontSize={Math.max(MIN_LABEL, fontSize - 3)}
+                  fill="#f0f3f5"
+                  fontSize={fontSize}
+                  fontWeight={isCenter ? 700 : 500}
                 >
-                  ♥ {node.empathyCount}
+                  {node.text}
                 </text>
-              )}
-            </g>
-          );
-        })}
-      </svg>
+              </g>
+            );
+          })}
+        </svg>
+      </div>
 
       <button
         type="button"
-        onClick={centerToView}
+        onClick={resetPan}
         className="absolute right-3 top-3 z-10 rounded-full border border-[var(--border)] bg-[var(--card)]/95 px-3 py-1.5 text-xs backdrop-blur"
       >
-        ⊙ 중심 맞추기
+        ⊙ 중심
       </button>
 
       <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-[var(--muted)]">
-        연결 단어 탭 → 그 단어 중심으로 · 빈 곳 드래그 → 화면 이동
+        연결 단어 탭 → 중심 이동 · 드래그 → 화면 이동
       </p>
     </div>
   );
 }
-
-const MIN_LABEL = 9;

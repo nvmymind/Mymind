@@ -44,7 +44,7 @@ export default function HomePage() {
 
   if (view === "map") {
     return (
-      <main className="flex h-dvh flex-col pb-16">
+      <main className="flex h-dvh flex-col overflow-hidden pb-16">
         <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-3 py-2">
           <h1 className="text-lg font-bold">MyMind</h1>
           <div className="flex items-center gap-2">

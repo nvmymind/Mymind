@@ -25,20 +25,25 @@ export type MindMapLayout = {
 };
 
 const MIN_FONT = 11;
-const CENTER_FONT = 20;
-const SATELLITE_FONT = 14;
+const CENTER_FONT = 18;
+const SATELLITE_FONT = 13;
 
 function ringCapacity(ringIndex: number) {
-  return ringIndex === 0 ? 8 : ringIndex === 1 ? 12 : 16;
-}
-
-function ringRadius(ringIndex: number, baseRadius: number) {
-  return baseRadius * (0.55 + ringIndex * 0.38);
+  return ringIndex === 0 ? 8 : ringIndex === 1 ? 14 : 18;
 }
 
 function satelliteFontSize(total: number, ring: number): number {
-  const shrink = Math.floor(total / 6) + ring;
-  return Math.max(MIN_FONT, SATELLITE_FONT - shrink);
+  return Math.max(MIN_FONT, SATELLITE_FONT - Math.floor(total / 8) - ring);
+}
+
+/** 고리별 반지름 — 바깥 고리가 maxR에 맞게 균등 분배 */
+function ringRadii(ringCount: number, maxR: number): number[] {
+  if (ringCount === 0) return [];
+  if (ringCount === 1) return [maxR * 0.72];
+  return Array.from({ length: ringCount }, (_, i) => {
+    const t = (i + 1) / ringCount;
+    return maxR * (0.45 + t * 0.55);
+  });
 }
 
 export function computeRadialLayout(
@@ -46,6 +51,12 @@ export function computeRadialLayout(
   viewportW: number,
   viewportH: number,
 ): MindMapLayout {
+  const w = Math.max(280, viewportW);
+  const h = Math.max(280, viewportH);
+  const centerX = w / 2;
+  const centerY = h / 2;
+  const maxR = Math.min(w, h) * 0.4;
+
   const centerNode =
     graph.nodes.find((n) => n.group === "center") ??
     graph.nodes.find((n) => n.id === graph.centerId) ??
@@ -55,27 +66,18 @@ export function computeRadialLayout(
     .filter((n) => n.id !== centerNode?.id)
     .sort((a, b) => b.empathyCount - a.empathyCount);
 
-  const baseRadius = Math.min(viewportW, viewportH) * 0.28;
-  const padding = 48;
-
   const rings: MindMapNode[][] = [];
   let idx = 0;
   let ringIndex = 0;
   while (idx < satellites.length) {
-    const cap = ringCapacity(ringIndex);
-    rings.push(satellites.slice(idx, idx + cap));
-    idx += cap;
+    rings.push(satellites.slice(idx, idx + ringCapacity(ringIndex)));
+    idx += ringCapacity(ringIndex);
     ringIndex += 1;
   }
 
-  const maxR = rings.length > 0 ? ringRadius(rings.length - 1, baseRadius) : baseRadius;
-  const neededW = Math.max(viewportW, maxR * 2 + padding * 2 + 80);
-  const neededH = Math.max(viewportH, maxR * 2 + padding * 2 + 80);
-
-  const centerX = neededW / 2;
-  const centerY = neededH / 2;
-
+  const radii = ringRadii(rings.length, maxR);
   const layoutNodes: LayoutNode[] = [];
+  const posById = new Map<string, { x: number; y: number }>();
 
   if (centerNode) {
     layoutNodes.push({
@@ -86,13 +88,11 @@ export function computeRadialLayout(
       ring: -1,
       isCenter: true,
     });
+    posById.set(centerNode.id, { x: centerX, y: centerY });
   }
 
-  const posById = new Map<string, { x: number; y: number }>();
-  if (centerNode) posById.set(centerNode.id, { x: centerX, y: centerY });
-
   rings.forEach((ringNodes, ri) => {
-    const r = ringRadius(ri, baseRadius);
+    const r = radii[ri];
     const fontSize = satelliteFontSize(satellites.length, ri);
     ringNodes.forEach((node, i) => {
       const angle = (2 * Math.PI * i) / ringNodes.length - Math.PI / 2;
@@ -107,17 +107,8 @@ export function computeRadialLayout(
   for (const link of graph.links) {
     const s = posById.get(link.source);
     const t = posById.get(link.target);
-    if (s && t) {
-      links.push({ source: s, target: t, empathyCount: link.empathyCount });
-    }
+    if (s && t) links.push({ source: s, target: t, empathyCount: link.empathyCount });
   }
 
-  return {
-    nodes: layoutNodes,
-    links,
-    width: neededW,
-    height: neededH,
-    centerX,
-    centerY,
-  };
+  return { nodes: layoutNodes, links, width: w, height: h, centerX, centerY };
 }
