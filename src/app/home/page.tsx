@@ -60,7 +60,7 @@ export default function HomePage() {
             </button>
           </div>
         </header>
-        <div className="relative min-h-0 flex-1">
+        <div className="relative min-h-0 flex-1 basis-0">
           {mindmap && mindmap.nodes.length > 0 ? (
             <MindMap2D graph={mindmap} onNodeClick={handleNodeClick} className="absolute inset-0" />
           ) : (

@@ -129,11 +129,13 @@ export default function WordDetailClient() {
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-2">
-        <button type="button" onClick={() => router.back()} className="text-sm text-[var(--accent)]">
-          ←
-        </button>
-        <h1 className="min-w-0 flex-1 truncate text-base font-bold">{data.word.text}</h1>
-        <div className="flex shrink-0 gap-2 text-xs">
+        <Link
+          href="/home"
+          className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--accent)]"
+        >
+          🏠 홈
+        </Link>
+        <div className="flex min-w-0 flex-1 justify-center gap-2 text-xs">
           <Link
             href={`/words/${id}?direction=out`}
             className={`rounded-full px-2.5 py-1 ${direction === "out" ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"}`}
@@ -150,13 +152,13 @@ export default function WordDetailClient() {
         <button
           type="button"
           onClick={() => setShowPanel((v) => !v)}
-          className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs"
+          className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs"
         >
           {showPanel ? "닫기" : "⚙️"}
         </button>
       </header>
 
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 basis-0">
         <MindMap2D
           key={`${id}-${direction}`}
           graph={graph}

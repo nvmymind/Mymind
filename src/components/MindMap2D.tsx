@@ -10,23 +10,36 @@ type Props = {
   className?: string;
 };
 
+const FONT =
+  '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+
 export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: 360, h: 500 });
+  const [size, setSize] = useState({ w: 360, h: 640 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const dragRef = useRef<{ startX: number; startY: number; px: number; py: number } | null>(null);
+  const dragRef = useRef<{ startX: number; startY: number; px: number; py: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const { width, height } = entries[0].contentRect;
-      if (width > 0 && height > 0) {
-        setSize({ w: width, h: height });
+
+    const update = () => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0) {
+        setSize({ w: Math.round(rect.width), h: Math.round(rect.height) });
       }
-    });
+    };
+
+    update();
+    const ro = new ResizeObserver(update);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", update);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, []);
 
   const layout = useMemo(
@@ -64,7 +77,7 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
   return (
     <div
       ref={containerRef}
-      className={`relative touch-none select-none overflow-hidden bg-[#060a10] ${className}`}
+      className={`relative h-full w-full min-h-0 touch-none select-none overflow-hidden bg-[#060a10] ${className}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -75,9 +88,12 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
         style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
       >
         <svg
+          width={layout.width}
+          height={layout.height}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           preserveAspectRatio="xMidYMid meet"
           className="h-full w-full"
+          style={{ fontFamily: FONT }}
         >
           {layout.links.map((link, i) => (
             <line
@@ -123,6 +139,7 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
                   fill="#f0f3f5"
                   fontSize={fontSize}
                   fontWeight={isCenter ? 700 : 500}
+                  fontFamily={FONT}
                 >
                   {node.text}
                 </text>
