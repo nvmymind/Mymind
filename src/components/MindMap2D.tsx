@@ -49,58 +49,60 @@ function MapNode({
     } as React.MouseEvent);
   };
 
+  const clearLongPress = () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
   return (
-    <g
-      data-node
-      transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
-      className="cursor-pointer"
-      onClick={(e) => {
-        e.stopPropagation();
-        if (longPressRef.current) {
-          longPressRef.current = false;
-          return;
-        }
-        onNodeClick(node);
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        openMenu(e.clientX, e.clientY);
-      }}
-      onPointerDown={(e) => {
-        if (!onNodeContextMenu) return;
-        timerRef.current = setTimeout(() => {
-          longPressRef.current = true;
-          openMenu(e.clientX, e.clientY);
-        }, 480);
-      }}
-      onPointerUp={() => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      }}
-      onPointerLeave={() => {
-        if (timerRef.current) clearTimeout(timerRef.current);
-      }}
+    <foreignObject
+      x={x - textW / 2}
+      y={y - textH / 2}
+      width={textW}
+      height={textH}
+      data-node-id={node.id}
     >
-      <rect
-        width={textW}
-        height={textH}
-        rx={textH / 2}
-        fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
-        stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
-        strokeWidth={isCenter ? 2.5 : 1}
-      />
-      <text
-        x={textW / 2}
-        y={textH / 2 + fontSize * 0.32}
-        textAnchor="middle"
-        fill="#f0f3f5"
-        fontSize={fontSize}
-        fontWeight={isCenter ? 700 : 500}
-        fontFamily={FONT}
+      <div
+        xmlns="http://www.w3.org/1999/xhtml"
+        data-node-id={node.id}
+        className={`flex h-full w-full cursor-pointer items-center justify-center rounded-full px-2 text-center leading-none text-[#f0f3f5] select-none ${
+          isCenter
+            ? "border-2 border-[#7dd3fc] bg-[#1d9bf0] font-bold"
+            : node.group === "trending"
+              ? "border border-amber-700 bg-amber-900 font-medium"
+              : "border border-sky-400/45 bg-[#152535] font-medium"
+        }`}
+        style={{ fontSize, fontFamily: FONT }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (longPressRef.current) {
+            longPressRef.current = false;
+            return;
+          }
+          onNodeClick(node);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openMenu(e.clientX, e.clientY);
+        }}
+        onPointerDown={(e) => {
+          if (!onNodeContextMenu || e.button !== 0) return;
+          clearLongPress();
+          timerRef.current = setTimeout(() => {
+            longPressRef.current = true;
+            openMenu(e.clientX, e.clientY);
+          }, 480);
+        }}
+        onPointerUp={clearLongPress}
+        onPointerLeave={clearLongPress}
+        onPointerCancel={clearLongPress}
       >
         {node.text}
-      </text>
-    </g>
+      </div>
+    </foreignObject>
   );
 }
 
@@ -138,15 +140,40 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
     [graph, size.w, size.h],
   );
 
+  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
+
   useEffect(() => {
     setPan({ x: 0, y: 0 });
   }, [graph, size.w, size.h]);
+
+  // Chrome: SVG g/rect 우클릭은 기본 메뉴가 뜨므로 capture 단계에서 가로챔
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root || !onNodeContextMenu) return;
+
+    const handleContextMenu = (e: MouseEvent) => {
+      for (const el of e.composedPath()) {
+        if (!(el instanceof Element)) continue;
+        const nodeId = el.getAttribute("data-node-id");
+        if (!nodeId) continue;
+        const node = nodeById.get(nodeId);
+        if (!node) continue;
+        e.preventDefault();
+        e.stopPropagation();
+        onNodeContextMenu(node, e as unknown as React.MouseEvent);
+        return;
+      }
+    };
+
+    root.addEventListener("contextmenu", handleContextMenu, true);
+    return () => root.removeEventListener("contextmenu", handleContextMenu, true);
+  }, [nodeById, onNodeContextMenu]);
 
   const resetPan = useCallback(() => setPan({ x: 0, y: 0 }), []);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if ((e.target as HTMLElement).closest("[data-node]")) return;
+      if ((e.target as Element).closest("[data-node-id]")) return;
       dragRef.current = { startX: e.clientX, startY: e.clientY, px: pan.x, py: pan.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },

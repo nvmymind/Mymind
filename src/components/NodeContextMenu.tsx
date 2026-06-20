@@ -19,6 +19,7 @@ export function NodeContextMenu({ node, x, y, onClose, onFocus, onConnect }: Pro
         aria-label="닫기"
         className="fixed inset-0 z-40 cursor-default"
         onClick={onClose}
+        onContextMenu={(e) => e.preventDefault()}
       />
       <div
         className="fixed z-50 min-w-[180px] overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card)] py-1 shadow-xl"
