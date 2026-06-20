@@ -1,25 +1,19 @@
 # MyMind
 
-**생각을 단어로 연결하는** 실시간 공감 플랫폼 MVP.
+**생각을 단어로 연결하는** 실시간 공감 플랫폼.
 
-## 기능
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/nvmymind/Mymind&env=DATABASE_URL,USE_POSTGRES,SESSION_SECRET,ADMIN_SECRET,APP_URL,NICE_RETURN_URL&envDescription=Neon%20DATABASE_URL%2C%20USE_POSTGRES%3D1%2C%20run%20node%20scripts%2Fgenerate-secrets.js&project-name=mymind&build-command=npm%20run%20vercel-build)
 
-- 단어 등록 및 연결 (중심 단어 → 연결 단어)
-- 공감 (단어·연결별 1인 1회)
-- **SSE 실시간 트렌드** + Redis 멀ti-instance + polling 폴백
-- 단어 검색
-- 성별·연령대 필터
-- 욕설 필터 + 신고 → 자동 비노출
-- **NICE CheckPlus(PASS) 본인인증** (키 없으면 mock)
-- **관리자 대시보드** (`/admin`)
+## 빠른 배포
 
-## 문서
+1. 위 **Deploy with Vercel** 버튼 클릭
+2. [Neon](https://neon.tech) DB 생성 → `DATABASE_URL` (pooled) 붙여넣기
+3. `USE_POSTGRES` = `1`
+4. `node scripts/generate-secrets.js` 로 `SESSION_SECRET`, `ADMIN_SECRET` 생성
+5. Deploy 후 `APP_URL`, `NICE_RETURN_URL` 설정 → Redeploy
+6. 시드: `.\scripts\deploy-seed.ps1 -DatabaseUrl "postgresql://..."`
 
-| 문서 | 내용 |
-|------|------|
-| [docs/06-neon-setup.md](docs/06-neon-setup.md) | Neon PostgreSQL |
-| [docs/07-vercel-deployment.md](docs/07-vercel-deployment.md) | Vercel 배포 |
-| [docs/04-pass-integration.md](docs/04-pass-integration.md) | PASS/NICE 연동 |
+상세: [docs/08-one-click-deploy.md](docs/08-one-click-deploy.md)
 
 ## 로컬 개발
 
@@ -31,10 +25,14 @@ npm run db:seed
 npm run dev
 ```
 
-## 프로덕션 (Vercel + Neon + Upstash)
+## 문서
 
-1. Neon DB → `DATABASE_URL` + `USE_POSTGRES=1`
-2. Upstash Redis → `UPSTASH_REDIS_REST_URL/TOKEN`
-3. GitHub → Vercel 연동
+| 문서 | 내용 |
+|------|------|
+| [docs/08-one-click-deploy.md](docs/08-one-click-deploy.md) | Vercel + Neon + Upstash |
+| [docs/06-neon-setup.md](docs/06-neon-setup.md) | Neon PostgreSQL |
+| [docs/07-vercel-deployment.md](docs/07-vercel-deployment.md) | Vercel 상세 |
 
-상세: [docs/07-vercel-deployment.md](docs/07-vercel-deployment.md)
+## GitHub
+
+https://github.com/nvmymind/Mymind
