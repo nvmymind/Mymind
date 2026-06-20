@@ -10,6 +10,7 @@ import { MindMap2D } from "@/components/MindMap2D";
 import { NodeContextMenu } from "@/components/NodeContextMenu";
 import { WordSearchBar } from "@/components/WordSearchBar";
 import type { SuggestItem } from "@/components/WordSuggestInput";
+import { useTrendingSuggestions } from "@/hooks/useTrendingSuggestions";
 import {
   buildMindMapFromWordDetail,
   type MindMapGraph,
@@ -44,6 +45,7 @@ export default function WordDetailClient() {
   const [showReport, setShowReport] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [connectTarget, setConnectTarget] = useState<ConnectTarget | null>(null);
+  const trendingSuggestions = useTrendingSuggestions(10, !!connectTarget);
 
   const { data, mutate } = useSWR<WordDetailResponse>(
     id ? `/api/v1/words/${id}?direction=out` : null,
@@ -76,16 +78,30 @@ export default function WordDetailClient() {
       });
     }
 
-    return graph.nodes
-      .filter((n) => n.id !== connectTarget.id && !linkedIds.has(n.id))
-      .slice(0, 8)
-      .map((n) => ({
+    const seen = new Set<string>([connectTarget.id, ...linkedIds]);
+    const items: SuggestItem[] = [];
+
+    for (const n of graph.nodes) {
+      if (seen.has(n.id)) continue;
+      seen.add(n.id);
+      items.push({
         id: n.id,
         text: n.text,
         empathyCount: n.empathyCount,
-        badge: "추천",
-      }));
-  }, [graph, connectTarget, data]);
+        badge: "주변",
+      });
+      if (items.length >= 5) break;
+    }
+
+    for (const t of trendingSuggestions) {
+      if (seen.has(t.id)) continue;
+      seen.add(t.id);
+      items.push(t);
+      if (items.length >= 10) break;
+    }
+
+    return items;
+  }, [graph, connectTarget, data, trendingSuggestions]);
 
   async function toggleWordEmpathy() {
     if (!data?.word) return;

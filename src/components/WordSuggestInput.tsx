@@ -99,25 +99,32 @@ export function WordSuggestInput({
           role="listbox"
           className="absolute left-0 right-0 top-[calc(100%+4px)] z-50 max-h-52 overflow-y-auto rounded-xl border border-[var(--border)] bg-[var(--card)] py-1 shadow-lg"
         >
-          {showRecommendations &&
-            recommendations.map((item) => (
-              <li key={`rec-${item.id}`}>
-                <button
-                  type="button"
-                  role="option"
-                  onClick={() => pick(item)}
-                  className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[var(--background)]"
-                >
-                  <span>
-                    {item.text}
-                    {item.badge && (
-                      <span className="ml-2 text-[10px] text-[var(--muted)]">{item.badge}</span>
+          {showRecommendations && (
+            <>
+              {recommendations.map((item, index) => {
+                const prevBadge = index > 0 ? recommendations[index - 1].badge : null;
+                const showLabel = item.badge && item.badge !== prevBadge;
+                return (
+                  <li key={`rec-${item.id}`}>
+                    {showLabel && (
+                      <p className="px-3 pb-1 pt-2 text-[10px] font-medium text-[var(--muted)]">
+                        {item.badge}
+                      </p>
                     )}
-                  </span>
-                  <span className="text-xs text-[var(--muted)]">❤️ {item.empathyCount}</span>
-                </button>
-              </li>
-            ))}
+                    <button
+                      type="button"
+                      role="option"
+                      onClick={() => pick(item)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[var(--background)]"
+                    >
+                      <span>{item.text}</span>
+                      <span className="text-xs text-[var(--muted)]">❤️ {item.empathyCount}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </>
+          )}
 
           {showResults && loading && (
             <li className="px-3 py-2 text-xs text-[var(--muted)]">검색 중…</li>

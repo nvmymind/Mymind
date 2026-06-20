@@ -6,6 +6,7 @@ import { useState } from "react";
 import useSWR from "swr";
 import { MindMap2D } from "@/components/MindMap2D";
 import { EmpathyButton } from "@/components/EmpathyButton";
+import { WordSearchBar } from "@/components/WordSearchBar";
 import { useTrendingStream } from "@/hooks/useTrendingStream";
 import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
 
@@ -45,20 +46,19 @@ export default function HomePage() {
   if (view === "map") {
     return (
       <main className="flex h-dvh flex-col overflow-hidden pb-16">
-        <header className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-3 py-2">
-          <h1 className="text-lg font-bold">MyMind</h1>
-          <div className="flex items-center gap-2">
-            <span className={`text-xs ${connected ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>
-              {connected ? "● Live" : "○ …"}
-            </span>
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs"
-            >
-              📋 목록
-            </button>
-          </div>
+        <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-2">
+          <h1 className="shrink-0 text-sm font-bold">MyMind</h1>
+          <WordSearchBar className="min-w-0 flex-1" />
+          <span className={`shrink-0 text-xs ${connected ? "text-[var(--accent)]" : "text-[var(--muted)]"}`}>
+            {connected ? "●" : "○"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setView("list")}
+            className="shrink-0 rounded-full border border-[var(--border)] px-2.5 py-1 text-xs"
+          >
+            📋
+          </button>
         </header>
         <div className="relative min-h-0 flex-1 basis-0">
           {mindmap && mindmap.nodes.length > 0 ? (
@@ -77,9 +77,9 @@ export default function HomePage() {
 
   return (
     <main className="pb-24">
-      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--background)] px-4 py-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-xl font-bold">MyMind</h1>
+      <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--background)] px-3 py-2">
+        <div className="mb-2 flex items-center justify-between">
+          <h1 className="text-lg font-bold">MyMind</h1>
           <button
             type="button"
             onClick={() => setView("map")}
@@ -88,6 +88,7 @@ export default function HomePage() {
             🧠 맵
           </button>
         </div>
+        <WordSearchBar />
       </header>
       <section className="px-4 pt-4">
         <div className="space-y-3">

@@ -1,14 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { WordSuggestInput, type SuggestItem } from "@/components/WordSuggestInput";
+import { useTrendingSuggestions } from "@/hooks/useTrendingSuggestions";
 
 export function WordSearchBar({ className = "" }: { className?: string }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-
-  const recommendations = useMemo<SuggestItem[]>(() => [], []);
+  const recommendations = useTrendingSuggestions(8);
 
   function goToWord(item: SuggestItem) {
     setQuery("");
