@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
-import { computeRadialLayout } from "@/lib/mindmap-layout";
+import { computeRadialLayout, type LayoutNode } from "@/lib/mindmap-layout";
 
 type Props = {
   graph: MindMapGraph;
@@ -14,6 +14,40 @@ type Props = {
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
 
+function nodeMetrics(node: MindMapNode, fontSize: number) {
+  const padX = Math.max(8, fontSize * 0.5);
+  const padY = Math.max(5, fontSize * 0.35);
+  const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
+  const textH = fontSize + padY * 2;
+  return { padX, padY, textW, textH };
+}
+
+function hitTestNode(
+  svg: SVGSVGElement,
+  clientX: number,
+  clientY: number,
+  layoutNodes: LayoutNode[],
+): MindMapNode | null {
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const local = pt.matrixTransform(ctm.inverse());
+
+  for (let i = layoutNodes.length - 1; i >= 0; i -= 1) {
+    const { node, x, y, fontSize } = layoutNodes[i];
+    const { textW, textH } = nodeMetrics(node, fontSize);
+    const left = x - textW / 2;
+    const top = y - textH / 2;
+    if (local.x >= left && local.x <= left + textW && local.y >= top && local.y <= top + textH) {
+      return node;
+    }
+  }
+  return null;
+}
+
 function MapNode({
   node,
   x,
@@ -21,7 +55,6 @@ function MapNode({
   fontSize,
   isCenter,
   onNodeClick,
-  onNodeContextMenu,
 }: {
   node: MindMapNode;
   x: number;
@@ -29,84 +62,50 @@ function MapNode({
   fontSize: number;
   isCenter: boolean;
   onNodeClick: (node: MindMapNode) => void;
-  onNodeContextMenu?: (node: MindMapNode, e: React.MouseEvent) => void;
 }) {
-  const longPressRef = useRef(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const padX = Math.max(8, fontSize * 0.5);
-  const padY = Math.max(5, fontSize * 0.35);
-  const textW = Math.max(fontSize * 2, node.text.length * fontSize * 0.58 + padX * 2);
-  const textH = fontSize + padY * 2;
-
-  const openMenu = (clientX: number, clientY: number) => {
-    if (!onNodeContextMenu) return;
-    onNodeContextMenu(node, {
-      clientX,
-      clientY,
-      preventDefault: () => undefined,
-      stopPropagation: () => undefined,
-    } as React.MouseEvent);
-  };
-
-  const clearLongPress = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
+  const { textW, textH } = nodeMetrics(node, fontSize);
 
   return (
-    <foreignObject
-      x={x - textW / 2}
-      y={y - textH / 2}
-      width={textW}
-      height={textH}
+    <g
       data-node-id={node.id}
+      transform={`translate(${x - textW / 2}, ${y - textH / 2})`}
+      className="cursor-pointer"
+      onClick={(e) => {
+        e.stopPropagation();
+        onNodeClick(node);
+      }}
     >
-      <div
-        data-node-id={node.id}
-        className={`flex h-full w-full cursor-pointer items-center justify-center rounded-full px-2 text-center leading-none text-[#f0f3f5] select-none ${
-          isCenter
-            ? "border-2 border-[#7dd3fc] bg-[#1d9bf0] font-bold"
-            : node.group === "trending"
-              ? "border border-amber-700 bg-amber-900 font-medium"
-              : "border border-sky-400/45 bg-[#152535] font-medium"
-        }`}
-        style={{ fontSize, fontFamily: FONT }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (longPressRef.current) {
-            longPressRef.current = false;
-            return;
-          }
-          onNodeClick(node);
-        }}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          openMenu(e.clientX, e.clientY);
-        }}
-        onPointerDown={(e) => {
-          if (!onNodeContextMenu || e.button !== 0) return;
-          clearLongPress();
-          timerRef.current = setTimeout(() => {
-            longPressRef.current = true;
-            openMenu(e.clientX, e.clientY);
-          }, 480);
-        }}
-        onPointerUp={clearLongPress}
-        onPointerLeave={clearLongPress}
-        onPointerCancel={clearLongPress}
+      <rect
+        width={textW}
+        height={textH}
+        rx={textH / 2}
+        fill={isCenter ? "#1d9bf0" : node.group === "trending" ? "#92400e" : "#152535"}
+        stroke={isCenter ? "#7dd3fc" : "rgba(107,203,255,0.45)"}
+        strokeWidth={isCenter ? 2.5 : 1}
+      />
+      <text
+        x={textW / 2}
+        y={textH / 2 + fontSize * 0.32}
+        textAnchor="middle"
+        fill="#f0f3f5"
+        fontSize={fontSize}
+        fontWeight={isCenter ? 700 : 500}
+        fontFamily={FONT}
+        style={{ pointerEvents: "none" }}
       >
         {node.text}
-      </div>
-    </foreignObject>
+      </text>
+    </g>
   );
 }
 
 export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "" }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; suppressClick: boolean }>({
+    timer: null,
+    suppressClick: false,
+  });
   const [size, setSize] = useState({ w: 360, h: 640 });
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const dragRef = useRef<{ startX: number; startY: number; px: number; py: number } | null>(
@@ -139,47 +138,81 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
     [graph, size.w, size.h],
   );
 
-  const nodeById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph.nodes]);
-
   useEffect(() => {
     setPan({ x: 0, y: 0 });
   }, [graph, size.w, size.h]);
 
-  // Chrome: SVG g/rect 우클릭은 기본 메뉴가 뜨므로 capture 단계에서 가로챔
+  const openMenuAt = useCallback(
+    (node: MindMapNode, clientX: number, clientY: number) => {
+      if (!onNodeContextMenu) return;
+      onNodeContextMenu(node, {
+        clientX,
+        clientY,
+        preventDefault: () => undefined,
+        stopPropagation: () => undefined,
+      } as React.MouseEvent);
+    },
+    [onNodeContextMenu],
+  );
+
+  const pickNodeAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const svg = svgRef.current;
+      if (!svg) return null;
+      return hitTestNode(svg, clientX, clientY, layout.nodes);
+    },
+    [layout.nodes],
+  );
+
   useEffect(() => {
     const root = containerRef.current;
     if (!root || !onNodeContextMenu) return;
 
     const handleContextMenu = (e: MouseEvent) => {
-      for (const el of e.composedPath()) {
-        if (!(el instanceof Element)) continue;
-        const nodeId = el.getAttribute("data-node-id");
-        if (!nodeId) continue;
-        const node = nodeById.get(nodeId);
-        if (!node) continue;
-        e.preventDefault();
-        e.stopPropagation();
-        onNodeContextMenu(node, e as unknown as React.MouseEvent);
-        return;
-      }
+      const node = pickNodeAt(e.clientX, e.clientY);
+      if (!node) return;
+      e.preventDefault();
+      e.stopPropagation();
+      openMenuAt(node, e.clientX, e.clientY);
     };
 
     root.addEventListener("contextmenu", handleContextMenu, true);
     return () => root.removeEventListener("contextmenu", handleContextMenu, true);
-  }, [nodeById, onNodeContextMenu]);
+  }, [onNodeContextMenu, openMenuAt, pickNodeAt]);
+
+  const clearLongPress = () => {
+    if (longPressRef.current.timer) {
+      clearTimeout(longPressRef.current.timer);
+      longPressRef.current.timer = null;
+    }
+  };
 
   const resetPan = useCallback(() => setPan({ x: 0, y: 0 }), []);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if ((e.target as Element).closest("[data-node-id]")) return;
+      const node = pickNodeAt(e.clientX, e.clientY);
+
+      if (node && onNodeContextMenu && e.button === 0) {
+        longPressRef.current.suppressClick = false;
+        clearLongPress();
+        longPressRef.current.timer = setTimeout(() => {
+          longPressRef.current.suppressClick = true;
+          openMenuAt(node, e.clientX, e.clientY);
+        }, 500);
+        return;
+      }
+
+      if (node) return;
+
       dragRef.current = { startX: e.clientX, startY: e.clientY, px: pan.x, py: pan.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [pan.x, pan.y],
+    [onNodeContextMenu, openMenuAt, pan.x, pan.y, pickNodeAt],
   );
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (longPressRef.current.timer) clearLongPress();
     if (!dragRef.current) return;
     setPan({
       x: dragRef.current.px + (e.clientX - dragRef.current.startX),
@@ -188,6 +221,7 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
   }, []);
 
   const onPointerUp = useCallback(() => {
+    clearLongPress();
     dragRef.current = null;
   }, []);
 
@@ -205,6 +239,7 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
         style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
       >
         <svg
+          ref={svgRef}
           width={layout.width}
           height={layout.height}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
@@ -232,8 +267,13 @@ export function MindMap2D({ graph, onNodeClick, onNodeContextMenu, className = "
               y={y}
               fontSize={fontSize}
               isCenter={isCenter}
-              onNodeClick={onNodeClick}
-              onNodeContextMenu={onNodeContextMenu}
+              onNodeClick={(n) => {
+                if (longPressRef.current.suppressClick) {
+                  longPressRef.current.suppressClick = false;
+                  return;
+                }
+                onNodeClick(n);
+              }}
             />
           ))}
         </svg>
