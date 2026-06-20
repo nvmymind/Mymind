@@ -65,7 +65,6 @@ function MapNode({
       data-node-id={node.id}
     >
       <div
-        xmlns="http://www.w3.org/1999/xhtml"
         data-node-id={node.id}
         className={`flex h-full w-full cursor-pointer items-center justify-center rounded-full px-2 text-center leading-none text-[#f0f3f5] select-none ${
           isCenter
