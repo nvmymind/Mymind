@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mymind-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mymind
+      POSTGRES_PASSWORD: mymind
+      POSTGRES_DB: mymind
+    ports:
+      - "5432:5432"
+    volumes:
+      - mymind_pg_data:/var/lib/postgresql/data
+
+volumes:
+  mymind_pg_data:

@@ -1,0 +1,112 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+  UNKNOWN
+}
+
+enum WordStatus {
+  ACTIVE
+  HIDDEN
+  PENDING_REVIEW
+}
+
+enum EmpathyTargetType {
+  WORD
+  CONNECTION
+}
+
+enum ReportReason {
+  PROFANITY
+  HATE
+  SPAM
+  OTHER
+}
+
+model User {
+  id          String           @id @default(cuid())
+  di          String           @unique
+  birthYear   Int
+  gender      Gender           @default(UNKNOWN)
+  verifiedAt  DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  words       Word[]
+  connections WordConnection[]
+  empathies   Empathy[]
+  reports     Report[]
+}
+
+model Word {
+  id                String           @id @default(cuid())
+  text              String
+  normalizedText    String           @unique
+  status            WordStatus       @default(ACTIVE)
+  reportCount       Int              @default(0)
+  empathyCount      Int              @default(0)
+  createdById       String?
+  createdBy         User?            @relation(fields: [createdById], references: [id])
+  createdAt         DateTime         @default(now())
+  sourceConnections WordConnection[] @relation("SourceWord")
+  targetConnections WordConnection[] @relation("TargetWord")
+  reports           Report[]
+
+  @@index([status, empathyCount(sort: Desc)])
+  @@index([normalizedText])
+}
+
+model WordConnection {
+  id           String   @id @default(cuid())
+  sourceWordId String
+  targetWordId String
+  userId       String
+  empathyCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  sourceWord   Word     @relation("SourceWord", fields: [sourceWordId], references: [id])
+  targetWord   Word     @relation("TargetWord", fields: [targetWordId], references: [id])
+  user         User     @relation(fields: [userId], references: [id])
+
+  @@unique([sourceWordId, targetWordId, userId])
+  @@index([sourceWordId, empathyCount(sort: Desc)])
+  @@index([targetWordId, empathyCount(sort: Desc)])
+}
+
+model Empathy {
+  id         String            @id @default(cuid())
+  userId     String
+  targetType EmpathyTargetType
+  targetId   String
+  createdAt  DateTime          @default(now())
+  user       User              @relation(fields: [userId], references: [id])
+
+  @@unique([userId, targetType, targetId])
+  @@index([targetType, targetId])
+}
+
+model Report {
+  id        String       @id @default(cuid())
+  userId    String
+  wordId    String
+  reason    ReportReason
+  createdAt DateTime     @default(now())
+  user      User         @relation(fields: [userId], references: [id])
+  word      Word         @relation(fields: [wordId], references: [id])
+
+  @@unique([userId, wordId])
+}
+
+model NiceAuthSession {
+  id             String   @id @default(cuid())
+  reqNo          String   @unique
+  tokenVersionId String?
+  createdAt      DateTime @default(now())
+  expiresAt      DateTime
+}

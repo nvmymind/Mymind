@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f1419;
+  --foreground: #e7e9ea;
+  --card: #1a2332;
+  --accent: #1d9bf0;
+  --accent-hover: #1a8cd8;
+  --muted: #8b98a5;
+  --border: #2f3336;
+  --danger: #f4212e;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Pretendard", "Apple SD Gothic Neo", sans-serif;
+  min-height: 100dvh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+button,
+select {
+  font: inherit;
+}
