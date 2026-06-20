@@ -251,3 +251,139 @@ export async function getWordDetail(
 }
 
 export { parseSegmentFilter };
+
+export type MindMapNode = {
+  id: string;
+  text: string;
+  empathyCount: number;
+  group: "center" | "linked" | "trending";
+};
+
+export type MindMapLink = {
+  source: string;
+  target: string;
+  empathyCount: number;
+  connectionId?: string;
+};
+
+export type MindMapGraph = {
+  nodes: MindMapNode[];
+  links: MindMapLink[];
+  centerId?: string;
+};
+
+export async function getWordMindMap(
+  wordId: string,
+  direction: "out" | "in" = "out",
+): Promise<MindMapGraph | null> {
+  const word = await prisma.word.findUnique({ where: { id: wordId } });
+  if (!word) return null;
+
+  const nodeMap = new Map<string, MindMapNode>();
+  const links: MindMapLink[] = [];
+
+  nodeMap.set(word.id, {
+    id: word.id,
+    text: displayWord(word.text, word.status),
+    empathyCount: word.empathyCount,
+    group: "center",
+  });
+
+  if (direction === "out") {
+    const connections = await prisma.wordConnection.findMany({
+      where: { sourceWordId: wordId },
+      include: { targetWord: true },
+      orderBy: { empathyCount: "desc" },
+      take: 30,
+    });
+    for (const c of connections) {
+      const linked = c.targetWord;
+      nodeMap.set(linked.id, {
+        id: linked.id,
+        text: displayWord(linked.text, linked.status),
+        empathyCount: linked.empathyCount,
+        group: "linked",
+      });
+      links.push({
+        source: word.id,
+        target: linked.id,
+        empathyCount: c.empathyCount,
+        connectionId: c.id,
+      });
+    }
+  } else {
+    const connections = await prisma.wordConnection.findMany({
+      where: { targetWordId: wordId },
+      include: { sourceWord: true },
+      orderBy: { empathyCount: "desc" },
+      take: 30,
+    });
+    for (const c of connections) {
+      const linked = c.sourceWord;
+      nodeMap.set(linked.id, {
+        id: linked.id,
+        text: displayWord(linked.text, linked.status),
+        empathyCount: linked.empathyCount,
+        group: "linked",
+      });
+      links.push({
+        source: linked.id,
+        target: word.id,
+        empathyCount: c.empathyCount,
+        connectionId: c.id,
+      });
+    }
+  }
+
+  return {
+    nodes: [...nodeMap.values()],
+    links,
+    centerId: word.id,
+  };
+}
+
+export async function getTrendingMindMap(limit = 10): Promise<MindMapGraph> {
+  const trending = await getTrendingWords(limit);
+  const nodeMap = new Map<string, MindMapNode>();
+  const links: MindMapLink[] = [];
+  const linkKeys = new Set<string>();
+
+  for (const item of trending.items) {
+    nodeMap.set(item.id, {
+      id: item.id,
+      text: item.text,
+      empathyCount: item.empathyCount,
+      group: "trending",
+    });
+
+    const connections = await prisma.wordConnection.findMany({
+      where: { sourceWordId: item.id },
+      include: { targetWord: true },
+      orderBy: { empathyCount: "desc" },
+      take: 4,
+    });
+
+    for (const c of connections) {
+      nodeMap.set(c.targetWord.id, {
+        id: c.targetWord.id,
+        text: displayWord(c.targetWord.text, c.targetWord.status),
+        empathyCount: c.targetWord.empathyCount,
+        group: "linked",
+      });
+
+      const key = [c.sourceWordId, c.targetWordId].sort().join("-");
+      if (linkKeys.has(key)) continue;
+      linkKeys.add(key);
+
+      links.push({
+        source: c.sourceWordId,
+        target: c.targetWordId,
+        empathyCount: c.empathyCount,
+        connectionId: c.id,
+      });
+    }
+  }
+
+  return { nodes: [...nodeMap.values()], links };
+}
+

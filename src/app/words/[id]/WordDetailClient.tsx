@@ -3,11 +3,20 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { EmpathyButton } from "@/components/EmpathyButton";
 import { SegmentFilterBar } from "@/components/SegmentFilterBar";
+import { MindMap3D } from "@/components/MindMap3D";
+import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
+
+type ConnectionRow = {
+  id: string;
+  word: { id: string; text: string };
+  empathyCount: number;
+  userEmpathized: boolean;
+};
 
 export default function WordDetailClient() {
   const { id } = useParams<{ id: string }>();
@@ -18,6 +27,7 @@ export default function WordDetailClient() {
   const [ageGroup, setAgeGroup] = useState("");
   const [newConnection, setNewConnection] = useState("");
   const [showReport, setShowReport] = useState(false);
+  const [selectedNode, setSelectedNode] = useState<MindMapNode | null>(null);
 
   const query = new URLSearchParams({ direction });
   if (gender) query.set("gender", gender);
@@ -27,6 +37,21 @@ export default function WordDetailClient() {
     id ? `/api/v1/words/${id}?${query.toString()}` : null,
     fetcher,
   );
+
+  const { data: mindmap } = useSWR<MindMapGraph>(
+    id ? `/api/v1/words/mindmap?wordId=${id}&direction=${direction}` : null,
+    fetcher,
+  );
+
+  const connectionByWordId = useMemo(() => {
+    const map = new Map<string, ConnectionRow>();
+    (data?.connections ?? []).forEach((c: ConnectionRow) => {
+      map.set(c.word.id, c);
+    });
+    return map;
+  }, [data?.connections]);
+
+  const selectedConnection = selectedNode ? connectionByWordId.get(selectedNode.id) : null;
 
   async function toggleEmpathy(targetType: "WORD" | "CONNECTION", targetId: string) {
     const res = await fetch("/api/v1/empathy", {
@@ -79,7 +104,11 @@ export default function WordDetailClient() {
     mutate();
   }
 
-  if (!data?.word) {
+  function handleNodeClick(node: MindMapNode) {
+    setSelectedNode(node);
+  }
+
+  if (!data?.word || !mindmap) {
     return (
       <main className="flex min-h-dvh items-center justify-center pb-24 text-[var(--muted)]">
         불러오는 중…
@@ -89,39 +118,18 @@ export default function WordDetailClient() {
 
   return (
     <main className="pb-24">
-      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-4">
+      <header className="flex items-center gap-3 border-b border-[var(--border)] px-4 py-3">
         <button type="button" onClick={() => router.back()} className="text-[var(--accent)]">
           ← 뒤로
         </button>
-        <h1 className="font-bold">단어 상세</h1>
+        <h1 className="font-bold">{data.word.text}</h1>
+        <span className="ml-auto text-xs text-[var(--muted)]">❤️ {data.word.empathyCount}</span>
       </header>
 
-      <section className="px-4 py-8 text-center">
-        <div className="inline-block rounded-2xl border border-[var(--border)] bg-[var(--card)] px-8 py-4 text-2xl font-bold">
-          {data.word.text}
-        </div>
-        <p className="mt-2 text-[var(--muted)]">❤️ {data.word.empathyCount.toLocaleString()}</p>
-        <div className="mt-4 flex flex-wrap justify-center gap-2">
-          <EmpathyButton
-            empathized={data.userWordEmpathized}
-            onClick={() => toggleEmpathy("WORD", data.word.id)}
-          />
-          {data.word.canReport && (
-            <button
-              type="button"
-              onClick={() => setShowReport(true)}
-              className="rounded-full border border-[var(--border)] px-4 py-2 text-sm text-[var(--muted)]"
-            >
-              🚩 신고
-            </button>
-          )}
-        </div>
-      </section>
-
-      <div className="mx-4 mb-4 flex rounded-full border border-[var(--border)] p-1">
+      <div className="mx-4 mt-3 flex rounded-full border border-[var(--border)] p-1">
         <Link
           href={`/words/${id}?direction=out`}
-          className={`flex-1 rounded-full py-2 text-center text-sm ${
+          className={`flex-1 rounded-full py-1.5 text-center text-xs ${
             direction === "out" ? "bg-[var(--accent)] text-white" : ""
           }`}
         >
@@ -129,13 +137,76 @@ export default function WordDetailClient() {
         </Link>
         <Link
           href={`/words/${id}?direction=in`}
-          className={`flex-1 rounded-full py-2 text-center text-sm ${
+          className={`flex-1 rounded-full py-1.5 text-center text-xs ${
             direction === "in" ? "bg-[var(--accent)] text-white" : ""
           }`}
         >
           들어오는 연결
         </Link>
       </div>
+
+      <div className="px-4 pt-3">
+        {mindmap.nodes.length > 1 ? (
+          <MindMap3D
+            graph={mindmap}
+            height={460}
+            onNodeClick={handleNodeClick}
+            onBackgroundClick={() => setSelectedNode(null)}
+          />
+        ) : (
+          <div className="flex h-[200px] items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--card)] text-sm text-[var(--muted)]">
+            아직 연결된 단어가 없습니다
+          </div>
+        )}
+      </div>
+
+      <section className="mx-4 mt-3 rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <EmpathyButton
+            empathized={data.userWordEmpathized}
+            onClick={() => toggleEmpathy("WORD", data.word.id)}
+            size="sm"
+          />
+          {data.word.canReport && (
+            <button
+              type="button"
+              onClick={() => setShowReport(true)}
+              className="rounded-full border border-[var(--border)] px-3 py-1 text-xs text-[var(--muted)]"
+            >
+              🚩 신고
+            </button>
+          )}
+        </div>
+
+        {selectedNode && selectedNode.group !== "center" && (
+          <div className="mt-3 border-t border-[var(--border)] pt-3">
+            <p className="text-sm">
+              선택: <strong>{selectedNode.text}</strong>
+              {selectedConnection ? ` · 연결 공감 ${selectedConnection.empathyCount}` : ""}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {selectedConnection && (
+                <EmpathyButton
+                  empathized={selectedConnection.userEmpathized}
+                  onClick={() => toggleEmpathy("CONNECTION", selectedConnection.id)}
+                  size="sm"
+                />
+              )}
+              <button
+                type="button"
+                onClick={() => router.push(`/words/${selectedNode.id}`)}
+                className="rounded-full border border-[var(--accent)] px-3 py-1 text-xs text-[var(--accent)]"
+              >
+                이 단어로 이동 →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {selectedNode?.group === "center" && (
+          <p className="mt-2 text-xs text-[var(--muted)]">중심 단어 · 주변 노드를 클릭해 연결을 탐색하세요</p>
+        )}
+      </section>
 
       <SegmentFilterBar
         gender={gender}
@@ -144,42 +215,7 @@ export default function WordDetailClient() {
         onAgeGroupChange={setAgeGroup}
       />
 
-      <section className="px-4">
-        <h2 className="mb-3 text-sm font-semibold text-[var(--muted)]">
-          연결된 단어 (공감 많은 순)
-        </h2>
-        <ol className="space-y-3">
-          {data.connections.map(
-            (
-              conn: {
-                id: string;
-                word: { id: string; text: string };
-                empathyCount: number;
-                userEmpathized: boolean;
-              },
-              index: number,
-            ) => (
-              <li
-                key={conn.id}
-                className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--card)] p-3"
-              >
-                <span className="w-6 text-sm text-[var(--muted)]">{index + 1}</span>
-                <Link href={`/words/${conn.word.id}`} className="flex-1 font-medium hover:underline">
-                  {conn.word.text}
-                </Link>
-                <span className="text-sm text-[var(--muted)]">{conn.empathyCount}</span>
-                <EmpathyButton
-                  empathized={conn.userEmpathized}
-                  onClick={() => toggleEmpathy("CONNECTION", conn.id)}
-                  size="sm"
-                />
-              </li>
-            ),
-          )}
-        </ol>
-      </section>
-
-      <section className="mt-8 px-4">
+      <section className="mt-4 px-4">
         <h3 className="mb-2 text-sm text-[var(--muted)]">연결 단어 추가</h3>
         <div className="flex gap-2">
           <input
