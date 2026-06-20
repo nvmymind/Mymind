@@ -30,7 +30,13 @@ export function ConnectWordDialog({ sourceText, recommendations, onClose, onConn
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
-      <div className="w-full max-w-sm rounded-2xl bg-[var(--card)] p-5">
+      <form
+        className="w-full max-w-sm rounded-2xl bg-[var(--card)] p-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
         <h3 className="mb-1 font-semibold">연결 단어 추가</h3>
         <p className="mb-4 text-sm text-[var(--muted)]">
           「{sourceText}」에 연결할 단어
@@ -40,7 +46,7 @@ export function ConnectWordDialog({ sourceText, recommendations, onClose, onConn
           value={text}
           onChange={setText}
           onSelect={(item) => submit(item.text)}
-          placeholder="단어 입력"
+          placeholder="단어 입력 · Enter로 추가"
           recommendations={recs}
           autoFocus
         />
@@ -54,15 +60,14 @@ export function ConnectWordDialog({ sourceText, recommendations, onClose, onConn
             취소
           </button>
           <button
-            type="button"
+            type="submit"
             disabled={submitting || !text.trim()}
-            onClick={() => submit()}
             className="flex-1 rounded-lg bg-[var(--accent)] py-2 text-sm text-white disabled:opacity-50"
           >
             {submitting ? "추가 중…" : "추가"}
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
