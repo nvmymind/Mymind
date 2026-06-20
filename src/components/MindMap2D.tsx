@@ -75,11 +75,9 @@ export function MindMap2D({ graph, onNodeClick, className = "" }: Props) {
         style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}
       >
         <svg
-          width={size.w}
-          height={size.h}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
           preserveAspectRatio="xMidYMid meet"
-          className="block h-full w-full"
+          className="h-full w-full"
         >
           {layout.links.map((link, i) => (
             <line

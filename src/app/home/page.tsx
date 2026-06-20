@@ -18,7 +18,7 @@ export default function HomePage() {
   const { data, connected } = useTrendingStream("", "");
 
   const { data: mindmap } = useSWR<MindMapGraph>(
-    view === "map" ? "/api/v1/words/mindmap?trending=1&limit=8" : null,
+    view === "map" ? "/api/v1/mindmap?trending=1&limit=8" : null,
     fetcher,
     { refreshInterval: 30000 },
   );

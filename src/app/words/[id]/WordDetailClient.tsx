@@ -3,12 +3,32 @@
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import useSWR from "swr";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { MindMap2D } from "@/components/MindMap2D";
 import { EmpathyButton } from "@/components/EmpathyButton";
-import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
+import {
+  buildMindMapFromWordDetail,
+  type MindMapGraph,
+  type MindMapNode,
+} from "@/lib/word-service";
 
-const fetcher = (url: string) => fetch(url).then((r) => r.json());
+async function fetcher(url: string) {
+  const res = await fetch(url);
+  const body = await res.json();
+  if (!res.ok) throw new Error(body.error ?? "불러오기에 실패했습니다.");
+  return body;
+}
+
+type WordDetailResponse = {
+  word: { id: string; text: string; empathyCount: number; canReport: boolean };
+  direction: "out" | "in";
+  connections: Array<{
+    id: string;
+    word: { id: string; text: string; empathyCount: number };
+    empathyCount: number;
+  }>;
+  userWordEmpathized: boolean;
+};
 
 export default function WordDetailClient() {
   const { id } = useParams<{ id: string }>();
@@ -19,15 +39,23 @@ export default function WordDetailClient() {
   const [newConnection, setNewConnection] = useState("");
   const [showReport, setShowReport] = useState(false);
 
-  const { data, mutate } = useSWR(
+  const { data, mutate } = useSWR<WordDetailResponse>(
     id ? `/api/v1/words/${id}?direction=${direction}` : null,
     fetcher,
   );
 
   const { data: mindmap, mutate: mutateMap } = useSWR<MindMapGraph>(
-    id ? `/api/v1/words/mindmap?wordId=${id}&direction=${direction}` : null,
+    id ? `/api/v1/mindmap?wordId=${id}&direction=${direction}` : null,
     fetcher,
   );
+
+  const graph = useMemo(() => {
+    if (mindmap?.nodes?.length) return mindmap;
+    if (data?.word && data.connections) {
+      return buildMindMapFromWordDetail(data.word, data.connections, direction);
+    }
+    return null;
+  }, [mindmap, data, direction]);
 
   async function toggleWordEmpathy() {
     if (!data?.word) return;
@@ -88,7 +116,7 @@ export default function WordDetailClient() {
     router.push(`/words/${node.id}?direction=out`);
   }
 
-  if (!data?.word || !mindmap) {
+  if (!data?.word || !graph) {
     return (
       <main className="flex h-dvh items-center justify-center text-[var(--muted)]">
         불러오는 중…
@@ -96,13 +124,16 @@ export default function WordDetailClient() {
     );
   }
 
+  const linkedCount = graph.nodes.length - 1;
+
   return (
     <main className="flex h-dvh flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-3 py-2">
         <button type="button" onClick={() => router.back()} className="text-sm text-[var(--accent)]">
           ←
         </button>
-        <div className="flex min-w-0 flex-1 gap-2 text-xs">
+        <h1 className="min-w-0 flex-1 truncate text-base font-bold">{data.word.text}</h1>
+        <div className="flex shrink-0 gap-2 text-xs">
           <Link
             href={`/words/${id}?direction=out`}
             className={`rounded-full px-2.5 py-1 ${direction === "out" ? "bg-[var(--accent)] text-white" : "border border-[var(--border)]"}`}
@@ -126,12 +157,16 @@ export default function WordDetailClient() {
       </header>
 
       <div className="relative min-h-0 flex-1">
-        {mindmap.nodes.length > 1 ? (
-          <MindMap2D graph={mindmap} onNodeClick={handleNodeClick} className="absolute inset-0" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
+        <MindMap2D
+          key={`${id}-${direction}`}
+          graph={graph}
+          onNodeClick={handleNodeClick}
+          className="absolute inset-0"
+        />
+        {linkedCount === 0 && (
+          <p className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-xs text-[var(--muted)]">
             연결 단어가 없습니다 · ⚙️에서 추가
-          </div>
+          </p>
         )}
       </div>
 

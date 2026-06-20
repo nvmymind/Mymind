@@ -272,6 +272,51 @@ export type MindMapGraph = {
   centerId?: string;
 };
 
+type WordDetailConnection = {
+  id: string;
+  word: { id: string; text: string; empathyCount: number };
+  empathyCount: number;
+};
+
+export function buildMindMapFromWordDetail(
+  word: { id: string; text: string; empathyCount: number },
+  connections: WordDetailConnection[],
+  direction: "out" | "in",
+): MindMapGraph {
+  const nodes: MindMapNode[] = [
+    {
+      id: word.id,
+      text: word.text,
+      empathyCount: word.empathyCount,
+      group: "center",
+    },
+    ...connections.map((c) => ({
+      id: c.word.id,
+      text: c.word.text,
+      empathyCount: c.word.empathyCount,
+      group: "linked" as const,
+    })),
+  ];
+
+  const links: MindMapLink[] = connections.map((c) =>
+    direction === "out"
+      ? {
+          source: word.id,
+          target: c.word.id,
+          empathyCount: c.empathyCount,
+          connectionId: c.id,
+        }
+      : {
+          source: c.word.id,
+          target: word.id,
+          empathyCount: c.empathyCount,
+          connectionId: c.id,
+        },
+  );
+
+  return { nodes, links, centerId: word.id };
+}
+
 export async function getWordMindMap(
   wordId: string,
   direction: "out" | "in" = "out",
