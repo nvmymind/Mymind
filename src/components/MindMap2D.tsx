@@ -19,10 +19,46 @@ type Props = {
   className?: string;
 };
 
+type ViewState = { pan: { x: number; y: number }; zoom: number };
+
 const FONT =
   '"Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
 const DOUBLE_CLICK_MS = 320;
 const DRAG_THRESHOLD = 6;
+const PAN_TO_NODE_MS = 480;
+const EXPAND_MS = 700;
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t;
+}
+
+function easeOutCubic(t: number) {
+  return 1 - (1 - t) ** 3;
+}
+
+function animateView(
+  from: ViewState,
+  to: ViewState,
+  duration: number,
+  onFrame: (view: ViewState) => void,
+): Promise<ViewState> {
+  return new Promise((resolve) => {
+    const start = performance.now();
+
+    function frame(now: number) {
+      const t = easeOutCubic(Math.min(1, (now - start) / duration));
+      const latest: ViewState = {
+        pan: { x: lerp(from.pan.x, to.pan.x, t), y: lerp(from.pan.y, to.pan.y, t) },
+        zoom: lerp(from.zoom, to.zoom, t),
+      };
+      onFrame(latest);
+      if (t < 1) requestAnimationFrame(frame);
+      else resolve(latest);
+    }
+
+    requestAnimationFrame(frame);
+  });
+}
 
 function hitTestNode(
   svg: SVGSVGElement,
@@ -74,7 +110,7 @@ function MapNode({
         rx={textH / 2}
         fill={colors.fill}
         stroke={colors.stroke}
-        strokeWidth={isCenter ? 2.5 : 1}
+        strokeWidth={isCenter ? 3 : 1.5}
       />
       <text
         x={textW / 2}
@@ -110,10 +146,38 @@ export function MindMap2D({
     active: boolean;
     pointerId: number;
   } | null>(null);
+  const animatingRef = useRef(false);
+  const viewRef = useRef<ViewState>({ pan: { x: 0, y: 0 }, zoom: 1 });
+  const graphCenterRef = useRef<string | undefined>(graph.centerId);
+  const initialFitDone = useRef(false);
+  const animTokenRef = useRef(0);
 
   const [size, setSize] = useState({ w: 360, h: 640 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+
+  viewRef.current = { pan, zoom };
+
+  const applyView = useCallback((view: ViewState) => {
+    viewRef.current = view;
+    setPan(view.pan);
+    setZoom(view.zoom);
+  }, []);
+
+  const runAnimation = useCallback(
+    async (to: ViewState, duration: number) => {
+      const token = ++animTokenRef.current;
+      animatingRef.current = true;
+      const from = viewRef.current;
+      const result = await animateView(from, to, duration, (view) => {
+        if (token !== animTokenRef.current) return;
+        applyView(view);
+      });
+      if (token === animTokenRef.current) animatingRef.current = false;
+      return result;
+    },
+    [applyView],
+  );
 
   useEffect(() => {
     const el = containerRef.current;
@@ -143,15 +207,36 @@ export function MindMap2D({
 
   const bounds = useMemo(() => computeContentBounds(layout.nodes), [layout.nodes]);
 
-  const fitToContent = useCallback(() => {
-    const fit = computeFitView(bounds, size.w, size.h);
-    setPan(fit.pan);
-    setZoom(fit.zoom);
-  }, [bounds, size.w, size.h]);
+  const fitToContent = useCallback(
+    (animated = false) => {
+      const fit = computeFitView(bounds, size.w, size.h);
+      if (animated) void runAnimation(fit, EXPAND_MS);
+      else applyView(fit);
+    },
+    [applyView, bounds, runAnimation, size.h, size.w],
+  );
 
   useEffect(() => {
-    fitToContent();
-  }, [fitToContent, graph]);
+    if (!initialFitDone.current) {
+      initialFitDone.current = true;
+      graphCenterRef.current = graph.centerId;
+      fitToContent(false);
+      return;
+    }
+
+    if (graph.centerId !== graphCenterRef.current) {
+      graphCenterRef.current = graph.centerId;
+      const currentZoom = viewRef.current.zoom;
+      applyView({
+        pan: {
+          x: size.w / 2 - layout.centerX * currentZoom,
+          y: size.h / 2 - layout.centerY * currentZoom,
+        },
+        zoom: currentZoom,
+      });
+      void runAnimation(computeFitView(bounds, size.w, size.h), EXPAND_MS);
+    }
+  }, [graph.centerId, layout.centerX, layout.centerY, bounds, size.w, size.h, applyView, fitToContent, runAnimation]);
 
   const pickNodeAt = useCallback(
     (clientX: number, clientY: number) => {
@@ -162,8 +247,32 @@ export function MindMap2D({
     [layout.nodes],
   );
 
+  const navigateToNode = useCallback(
+    async (node: MindMapNode) => {
+      if (animatingRef.current || node.id === centerId) return;
+
+      const ln = layout.nodes.find((n) => n.node.id === node.id);
+      if (!ln) {
+        onNodeClick?.(node);
+        return;
+      }
+
+      const { zoom: z } = viewRef.current;
+      const target: ViewState = {
+        pan: { x: size.w / 2 - ln.x * z, y: size.h / 2 - ln.y * z },
+        zoom: z,
+      };
+
+      await runAnimation(target, PAN_TO_NODE_MS);
+      onNodeClick?.(node);
+    },
+    [centerId, layout.nodes, onNodeClick, runAnimation, size.h, size.w],
+  );
+
   const handleNodeTap = useCallback(
     (node: MindMapNode) => {
+      if (animatingRef.current) return;
+
       const pending = clickRef.current;
       if (pending?.nodeId === node.id) {
         clearTimeout(pending.timer);
@@ -177,11 +286,11 @@ export function MindMap2D({
         timer: setTimeout(() => {
           clickRef.current = null;
           if (node.id === centerId) return;
-          onNodeClick?.(node);
+          void navigateToNode(node);
         }, DOUBLE_CLICK_MS),
       };
     },
-    [centerId, onNodeClick, onNodeDoubleClick],
+    [centerId, navigateToNode, onNodeDoubleClick],
   );
 
   useEffect(
@@ -192,7 +301,7 @@ export function MindMap2D({
   );
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || animatingRef.current) return;
     dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -206,7 +315,7 @@ export function MindMap2D({
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     const drag = dragRef.current;
-    if (!drag || drag.pointerId !== e.pointerId) return;
+    if (!drag || drag.pointerId !== e.pointerId || animatingRef.current) return;
 
     const dx = e.clientX - drag.lastX;
     const dy = e.clientY - drag.lastY;
@@ -225,7 +334,7 @@ export function MindMap2D({
     }
 
     if (drag.active) {
-      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
+      setPan((prev) => ({ x: prev.x + dx, y: prev.y + dy }));
     }
   }, []);
 
@@ -234,7 +343,7 @@ export function MindMap2D({
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== e.pointerId) return;
 
-      if (!drag.active) {
+      if (!drag.active && !animatingRef.current) {
         const node = pickNodeAt(e.clientX, e.clientY);
         if (node) handleNodeTap(node);
       }
@@ -246,12 +355,13 @@ export function MindMap2D({
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
+      if (animatingRef.current) return;
       e.preventDefault();
       const factor = e.deltaY > 0 ? 0.92 : 1.08;
       const cx = size.w / 2;
       const cy = size.h / 2;
       setZoom((prev) => {
-        const next = Math.max(0.25, Math.min(2.5, prev * factor));
+        const next = Math.max(0.2, Math.min(2.5, prev * factor));
         setPan((p) => ({
           x: cx - (cx - p.x) * (next / prev),
           y: cy - (cy - p.y) * (next / prev),
@@ -273,10 +383,11 @@ export function MindMap2D({
       onWheel={onWheel}
     >
       <div
-        className="absolute left-0 top-0 cursor-grab active:cursor-grabbing"
+        className={`absolute left-0 top-0 ${animatingRef.current ? "cursor-default" : "cursor-grab active:cursor-grabbing"}`}
         style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: "0 0",
+          willChange: "transform",
         }}
       >
         <svg
@@ -293,8 +404,8 @@ export function MindMap2D({
               y1={link.source.y}
               x2={link.target.x}
               y2={link.target.y}
-              stroke="rgba(29, 155, 240, 0.4)"
-              strokeWidth={Math.max(1, Math.min(3, Math.log2(Math.abs(link.empathyCount) + 2)))}
+              stroke="rgba(29, 155, 240, 0.45)"
+              strokeWidth={Math.max(1.5, Math.min(4, Math.log2(Math.abs(link.empathyCount) + 2)))}
             />
           ))}
 
@@ -316,7 +427,7 @@ export function MindMap2D({
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
-          fitToContent();
+          fitToContent(true);
         }}
         className="absolute right-3 top-3 z-10 rounded-full border border-[var(--border)] bg-[var(--card)]/95 px-3 py-1.5 text-xs backdrop-blur"
       >
@@ -324,7 +435,7 @@ export function MindMap2D({
       </button>
 
       <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-[var(--muted)]">
-        드래그 → 좌우·상하 이동 · 클릭 → 중심 이동 · 더블클릭 → 점수·연결 · 휠 → 확대/축소
+        드래그 → 이동 · 클릭 → 중심으로 이동 · 더블클릭 → 점수·연결 · 휠 → 확대/축소
       </p>
     </div>
   );

@@ -55,11 +55,13 @@ export default function WordDetailClient() {
   const { data, mutate } = useSWR<WordDetailResponse>(
     centerId ? `/api/v1/words/${centerId}` : null,
     fetcher,
+    { keepPreviousData: true },
   );
 
   const { data: mindmap, mutate: mutateMap } = useSWR<MindMapGraph>(
     centerId ? `/api/v1/mindmap?wordId=${centerId}` : null,
     fetcher,
+    { keepPreviousData: true },
   );
 
   const graph = useMemo(() => {
@@ -182,7 +184,7 @@ export default function WordDetailClient() {
     setConnectTarget({ id: node.id, text: node.text, score: node.empathyCount });
   }
 
-  if (!data?.word || !graph) {
+  if (!graph) {
     return (
       <main className="flex h-dvh items-center justify-center text-[var(--muted)]">
         불러오는 중…
@@ -213,7 +215,6 @@ export default function WordDetailClient() {
 
       <div className="relative min-h-0 flex-1 basis-0">
         <MindMap2D
-          key={centerId}
           graph={graph}
           centerId={centerId}
           onNodeClick={handleNodeClick}
@@ -239,7 +240,7 @@ export default function WordDetailClient() {
         />
       )}
 
-      {showPanel && (
+      {showPanel && data?.word && (
         <div className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] p-3 pb-20">
           <p className="mb-2 text-sm font-semibold">{data.word.text}</p>
           <div className="mb-3">

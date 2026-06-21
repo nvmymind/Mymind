@@ -36,10 +36,10 @@ export type ContentBounds = {
   h: number;
 };
 
-const MIN_FONT = 10;
-const CENTER_FONT = 18;
-const SATELLITE_FONT = 13;
-const MAX_PER_RING = 36;
+const MIN_FONT = 20;
+const CENTER_FONT = 36;
+const SATELLITE_FONT = 26;
+const MAX_PER_RING = 28;
 
 /** 노드 pill 크기 — 렌더·히트테스트 공통 */
 export function computeNodeBox(node: MindMapNode, fontSize: number) {
@@ -102,7 +102,7 @@ export function computeFitView(
 }
 
 function satelliteFontSize(total: number, ring: number): number {
-  return Math.max(MIN_FONT, SATELLITE_FONT - Math.floor(total / 16) - ring * 0.4);
+  return Math.max(MIN_FONT, SATELLITE_FONT - Math.floor(total / 20) - ring * 0.35);
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -122,7 +122,7 @@ export function computeRadialLayout(
   viewportH: number,
 ): MindMapLayout {
   const nodeCount = graph.nodes.length;
-  const scale = Math.min(2.8, 1 + nodeCount / 45);
+  const scale = Math.min(3.6, 1.3 + nodeCount / 32);
   const w = Math.max(320, Math.round(viewportW * scale));
   const h = Math.max(320, Math.round(viewportH * scale));
   const centerX = w / 2;
@@ -165,7 +165,7 @@ export function computeRadialLayout(
       node: centerNode,
       x: centerX,
       y: centerY,
-      fontSize: nodeCount > 80 ? CENTER_FONT - 2 : CENTER_FONT,
+      fontSize: nodeCount > 80 ? CENTER_FONT - 4 : CENTER_FONT,
       ring: -1,
       isCenter: true,
     });
