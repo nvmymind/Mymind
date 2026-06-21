@@ -142,7 +142,7 @@ export default function AdminDashboard() {
                   <span className="text-xs text-[var(--muted)]">({word.text})</span>
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  신고 {word.reportCount} · 공감 {word.empathyCount} · 접수 {word.reportsTotal}
+                  신고 {word.reportCount} · 총점 {word.empathyCount} · 접수 {word.reportsTotal}
                 </p>
               </div>
               <div className="flex gap-2">

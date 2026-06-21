@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import useSWR from "swr";
 import { MindMap2D } from "@/components/MindMap2D";
-import { EmpathyButton } from "@/components/EmpathyButton";
+import { WordScoreControl } from "@/components/WordScoreControl";
 import { WordSearchBar } from "@/components/WordSearchBar";
 import { useTrendingStream } from "@/hooks/useTrendingStream";
 import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
@@ -15,7 +15,9 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 export default function HomePage() {
   const router = useRouter();
   const [view, setView] = useState<"map" | "list">("map");
-  const [empathyState, setEmpathyState] = useState<Record<string, boolean>>({});
+  const [scoreState, setScoreState] = useState<
+    Record<string, { userScore: number; totalScore: number }>
+  >({});
   const { data, connected } = useTrendingStream("", "");
 
   const { data: mindmap } = useSWR<MindMapGraph>(
@@ -24,19 +26,30 @@ export default function HomePage() {
     { refreshInterval: 30000 },
   );
 
-  async function toggleWordEmpathy(wordId: string) {
+  async function submitWordScore(wordId: string, score: number) {
     const res = await fetch("/api/v1/empathy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetType: "WORD", targetId: wordId }),
+      body: JSON.stringify({ targetType: "WORD", targetId: wordId, score }),
     });
     if (res.status === 401) {
-      alert("공감하려면 본인인증이 필요합니다.");
+      alert("점수를 주려면 본인인증이 필요합니다.");
       return;
     }
     if (!res.ok) return;
-    const { empathized } = await res.json();
-    setEmpathyState((s) => ({ ...s, [wordId]: empathized }));
+    const { userScore, totalScore } = await res.json();
+    setScoreState((s) => ({
+      ...s,
+      [wordId]: { userScore, totalScore },
+    }));
+  }
+
+  function itemScores(item: { id: string; empathyCount: number }) {
+    const local = scoreState[item.id];
+    return {
+      userScore: local?.userScore ?? 0,
+      totalScore: local?.totalScore ?? item.empathyCount,
+    };
   }
 
   function handleNodeClick(node: MindMapNode) {
@@ -92,24 +105,27 @@ export default function HomePage() {
       </header>
       <section className="px-4 pt-4">
         <div className="space-y-3">
-          {(data?.items ?? []).map((item) => (
-            <article
-              key={item.id}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4"
-            >
-              <Link href={`/words/${item.id}`} className="text-lg font-semibold">
-                {item.text}
-              </Link>
-              <p className="text-sm text-[var(--muted)]">❤️ {item.empathyCount}</p>
-              <div className="mt-2">
-                <EmpathyButton
-                  empathized={!!empathyState[item.id]}
-                  onClick={() => toggleWordEmpathy(item.id)}
+          {(data?.items ?? []).map((item) => {
+            const { userScore, totalScore } = itemScores(item);
+            return (
+              <article
+                key={item.id}
+                className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4"
+              >
+                <div className="mb-2">
+                  <Link href={`/words/${item.id}`} className="text-lg font-semibold">
+                    {item.text}
+                  </Link>
+                </div>
+                <WordScoreControl
+                  totalScore={totalScore}
+                  userScore={userScore}
+                  onSubmit={(score) => submitWordScore(item.id, score)}
                   size="sm"
                 />
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
     </main>

@@ -2,6 +2,10 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+function clampSeedScore(total: number) {
+  return Math.max(-10, Math.min(10, total));
+}
+
 async function main() {
   const user = await prisma.user.upsert({
     where: { di: "seed-user-1" },
@@ -19,29 +23,49 @@ async function main() {
   ];
 
   for (const entry of words) {
+    const centerScore = Math.floor(Math.random() * 121) - 40;
     const center = await prisma.word.upsert({
       where: { normalizedText: entry.text.toLowerCase() },
       create: {
         text: entry.text,
         normalizedText: entry.text.toLowerCase(),
         createdById: user.id,
-        empathyCount: Math.floor(Math.random() * 500) + 100,
+        empathyCount: centerScore,
       },
-      update: {},
+      update: { empathyCount: centerScore },
+    });
+
+    await prisma.empathy.upsert({
+      where: {
+        userId_targetType_targetId: {
+          userId: user.id,
+          targetType: "WORD",
+          targetId: center.id,
+        },
+      },
+      create: {
+        userId: user.id,
+        targetType: "WORD",
+        targetId: center.id,
+        score: clampSeedScore(centerScore),
+      },
+      update: { score: clampSeedScore(centerScore) },
     });
 
     for (const targetText of entry.connections) {
+      const targetScore = Math.floor(Math.random() * 81) - 30;
       const target = await prisma.word.upsert({
         where: { normalizedText: targetText.toLowerCase() },
         create: {
           text: targetText,
           normalizedText: targetText.toLowerCase(),
           createdById: user.id,
-          empathyCount: Math.floor(Math.random() * 200),
+          empathyCount: targetScore,
         },
-        update: {},
+        update: { empathyCount: targetScore },
       });
 
+      const linkScore = Math.floor(Math.random() * 61) - 20;
       await prisma.wordConnection.upsert({
         where: {
           sourceWordId_targetWordId_userId: {
@@ -54,9 +78,9 @@ async function main() {
           sourceWordId: center.id,
           targetWordId: target.id,
           userId: user.id,
-          empathyCount: Math.floor(Math.random() * 300) + 50,
+          empathyCount: linkScore,
         },
-        update: {},
+        update: { empathyCount: linkScore },
       });
     }
   }

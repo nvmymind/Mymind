@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { ScoreBadge } from "@/components/ScoreBadge";
 
 type SearchItem = { id: string; text: string; empathyCount: number };
 
@@ -41,7 +42,7 @@ export default function SearchPage() {
             className="mb-2 flex items-center justify-between rounded-xl border border-[var(--border)] bg-[var(--card)] p-4"
           >
             <span className="font-medium">{item.text}</span>
-            <span className="text-sm text-[var(--muted)]">❤️ {item.empathyCount} →</span>
+            <ScoreBadge score={item.empathyCount} />
           </Link>
         ))}
 

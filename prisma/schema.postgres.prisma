@@ -84,6 +84,7 @@ model Empathy {
   userId     String
   targetType EmpathyTargetType
   targetId   String
+  score      Int               @default(0)
   createdAt  DateTime          @default(now())
   user       User              @relation(fields: [userId], references: [id])
 

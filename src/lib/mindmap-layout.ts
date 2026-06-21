@@ -1,4 +1,5 @@
 import type { MindMapGraph, MindMapNode } from "./word-service";
+import { formatScore } from "./score-color";
 
 export type LayoutNode = {
   node: MindMapNode;
@@ -24,34 +25,38 @@ export type MindMapLayout = {
   centerY: number;
 };
 
-const MIN_FONT = 11;
-const CENTER_FONT = 18;
-const SATELLITE_FONT = 13;
+const MIN_FONT = 12;
+const CENTER_FONT = 20;
+const SATELLITE_FONT = 14;
 
 /** 노드 pill 크기 — 렌더·히트테스트 공통 */
 export function computeNodeBox(node: MindMapNode, fontSize: number) {
   const padX = Math.max(12, fontSize * 0.72);
   const padY = Math.max(7, fontSize * 0.5);
-  const textW = Math.max(fontSize * 2.4, node.text.length * fontSize * 0.78 + padX * 2);
+  const label = `${node.text} (${formatScore(node.empathyCount)})`;
+  const textW = Math.max(fontSize * 2.4, label.length * fontSize * 0.78 + padX * 2);
   const textH = fontSize + padY * 2;
-  return { padX, padY, textW, textH };
+  return { padX, padY, textW, textH, label };
 }
 
 function ringCapacity(ringIndex: number) {
-  return ringIndex === 0 ? 8 : ringIndex === 1 ? 14 : 18;
+  if (ringIndex === 0) return 12;
+  if (ringIndex === 1) return 18;
+  if (ringIndex === 2) return 22;
+  return 26;
 }
 
 function satelliteFontSize(total: number, ring: number): number {
-  return Math.max(MIN_FONT, SATELLITE_FONT - Math.floor(total / 8) - ring);
+  return Math.max(MIN_FONT, SATELLITE_FONT - Math.floor(total / 12) - ring * 0.5);
 }
 
-/** 고리별 반지름 — 바깥 고리가 maxR에 맞게 균등 분배 */
+/** 고리별 반지름 — 화면 가장자리까지 최대한 활용 */
 function ringRadii(ringCount: number, maxR: number): number[] {
   if (ringCount === 0) return [];
-  if (ringCount === 1) return [maxR * 0.72];
+  if (ringCount === 1) return [maxR * 0.82];
   return Array.from({ length: ringCount }, (_, i) => {
     const t = (i + 1) / ringCount;
-    return maxR * (0.45 + t * 0.55);
+    return maxR * (0.52 + t * 0.48);
   });
 }
 
@@ -60,11 +65,11 @@ export function computeRadialLayout(
   viewportW: number,
   viewportH: number,
 ): MindMapLayout {
-  const w = Math.max(280, viewportW);
-  const h = Math.max(280, viewportH);
+  const w = Math.max(320, viewportW);
+  const h = Math.max(320, viewportH);
   const centerX = w / 2;
   const centerY = h / 2;
-  const maxR = Math.min(w, h) * 0.4;
+  const maxR = Math.min(w, h) * 0.47;
 
   const centerNode =
     graph.nodes.find((n) => n.group === "center") ??
@@ -104,7 +109,7 @@ export function computeRadialLayout(
     const r = radii[ri];
     const fontSize = satelliteFontSize(satellites.length, ri);
     ringNodes.forEach((node, i) => {
-      const angle = (2 * Math.PI * i) / ringNodes.length - Math.PI / 2;
+      const angle = (2 * Math.PI * i) / ringNodes.length - Math.PI / 2 + ri * 0.08;
       const x = centerX + r * Math.cos(angle);
       const y = centerY + r * Math.sin(angle);
       layoutNodes.push({ node, x, y, fontSize, ring: ri, isCenter: false });

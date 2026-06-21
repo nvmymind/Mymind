@@ -1,61 +1,73 @@
-import type { Gender } from "@prisma/client";
 import { prisma } from "./prisma";
 import { REPORT_THRESHOLD } from "./moderation";
 import { notifyTrendingUpdate } from "./trending-events";
 import { userWhereFromSegment, type SegmentFilter } from "./word-service-utils";
 
-export async function toggleEmpathy(
+const MIN_SCORE = -10;
+const MAX_SCORE = 10;
+
+export function clampUserScore(score: number) {
+  return Math.max(MIN_SCORE, Math.min(MAX_SCORE, Math.round(score)));
+}
+
+export async function setScore(
   userId: string,
   targetType: "WORD" | "CONNECTION",
   targetId: string,
+  rawScore: number,
 ) {
+  const score = clampUserScore(rawScore);
+
   const existing = await prisma.empathy.findUnique({
     where: {
       userId_targetType_targetId: { userId, targetType, targetId },
     },
   });
 
-  if (existing) {
-    await prisma.$transaction(async (tx) => {
-      await tx.empathy.delete({ where: { id: existing.id } });
+  const oldScore = existing?.score ?? 0;
+  const delta = score - oldScore;
 
+  if (delta === 0) {
+    return { userScore: score, totalScore: await readTotalScore(targetType, targetId) };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (score === 0 && existing) {
+      await tx.empathy.delete({ where: { id: existing.id } });
+    } else if (existing) {
+      await tx.empathy.update({ where: { id: existing.id }, data: { score } });
+    } else if (score !== 0) {
+      await tx.empathy.create({
+        data: { userId, targetType, targetId, score },
+      });
+    }
+
+    if (delta !== 0) {
       if (targetType === "WORD") {
         await tx.word.update({
           where: { id: targetId },
-          data: { empathyCount: { decrement: 1 } },
+          data: { empathyCount: { increment: delta } },
         });
       } else {
         await tx.wordConnection.update({
           where: { id: targetId },
-          data: { empathyCount: { decrement: 1 } },
+          data: { empathyCount: { increment: delta } },
         });
       }
-    });
-
-    notifyTrendingUpdate("empathy");
-    return { empathized: false };
-  }
-
-  await prisma.$transaction(async (tx) => {
-    await tx.empathy.create({
-      data: { userId, targetType, targetId },
-    });
-
-    if (targetType === "WORD") {
-      await tx.word.update({
-        where: { id: targetId },
-        data: { empathyCount: { increment: 1 } },
-      });
-    } else {
-      await tx.wordConnection.update({
-        where: { id: targetId },
-        data: { empathyCount: { increment: 1 } },
-      });
     }
   });
 
   notifyTrendingUpdate("empathy");
-  return { empathized: true };
+  return { userScore: score, totalScore: await readTotalScore(targetType, targetId) };
+}
+
+async function readTotalScore(targetType: "WORD" | "CONNECTION", targetId: string) {
+  if (targetType === "WORD") {
+    const w = await prisma.word.findUnique({ where: { id: targetId } });
+    return w?.empathyCount ?? 0;
+  }
+  const c = await prisma.wordConnection.findUnique({ where: { id: targetId } });
+  return c?.empathyCount ?? 0;
 }
 
 export async function createReport(
@@ -86,7 +98,7 @@ export async function createReport(
   return { reportCount: updated.reportCount + 1 };
 }
 
-export async function countSegmentEmpathy(
+export async function sumSegmentScores(
   targetType: "WORD" | "CONNECTION",
   targetIds: string[],
   filter: SegmentFilter,
@@ -100,10 +112,8 @@ export async function countSegmentEmpathy(
       targetId: { in: targetIds },
       user: userWhereFromSegment(filter),
     },
-    _count: { _all: true },
+    _sum: { score: true },
   });
 
-  return new Map(grouped.map((g) => [g.targetId, g._count._all]));
+  return new Map(grouped.map((g) => [g.targetId, g._sum.score ?? 0]));
 }
-
-export type { Gender };

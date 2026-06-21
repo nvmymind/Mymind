@@ -81,6 +81,7 @@ export async function getTrendingWords(limit = 20, filter: SegmentFilter = {}) {
         id: w.id,
         text: displayWord(w.text, w.status),
         empathyCount: w.empathyCount,
+        score: w.empathyCount,
         rank: i + 1,
         status: w.status,
       })),
@@ -94,18 +95,18 @@ export async function getTrendingWords(limit = 20, filter: SegmentFilter = {}) {
       targetType: "WORD",
       user: userWhereFromSegment(filter),
     },
-    _count: { _all: true },
-    orderBy: { _count: { targetId: "desc" } },
+    _sum: { score: true },
+    orderBy: { _sum: { score: "desc" } },
     take: limit * 3,
   });
 
-  const totalSample = grouped.reduce((sum, g) => sum + g._count._all, 0);
+  const totalSample = grouped.reduce((sum, g) => sum + (g._sum.score ?? 0), 0);
   const wordIds = grouped.map((g) => g.targetId);
   const words = await prisma.word.findMany({
     where: { id: { in: wordIds }, status: "ACTIVE" },
   });
   const wordMap = new Map(words.map((w) => [w.id, w]));
-  const countMap = new Map(grouped.map((g) => [g.targetId, g._count._all]));
+  const scoreMap = new Map(grouped.map((g) => [g.targetId, g._sum.score ?? 0]));
 
   const items = wordIds
     .map((id) => {
@@ -114,7 +115,8 @@ export async function getTrendingWords(limit = 20, filter: SegmentFilter = {}) {
       return {
         id: word.id,
         text: displayWord(word.text, word.status),
-        empathyCount: countMap.get(id) ?? 0,
+        empathyCount: scoreMap.get(id) ?? 0,
+        score: scoreMap.get(id) ?? 0,
         status: word.status,
       };
     })
@@ -145,33 +147,33 @@ export async function searchWords(query: string, limit = 20) {
     id: w.id,
     text: w.text,
     empathyCount: w.empathyCount,
+    score: w.empathyCount,
   }));
 }
 
 export async function getWordDetail(
   wordId: string,
-  direction: "out" | "in" = "out",
   userId?: string,
   _filter: SegmentFilter = {},
 ) {
   const word = await prisma.word.findUnique({ where: { id: wordId } });
   if (!word) return null;
 
-  async function getUserEmpathySets(ids: string[]) {
-    let userConnectionEmpathies = new Set<string>();
+  async function getUserScoreData(connectionIds: string[]) {
+    let userConnectionScores = new Map<string, number>();
     if (userId) {
       const empathies = await prisma.empathy.findMany({
         where: {
           userId,
           targetType: "CONNECTION",
-          targetId: { in: ids },
+          targetId: { in: connectionIds },
         },
       });
-      userConnectionEmpathies = new Set(empathies.map((e) => e.targetId));
+      userConnectionScores = new Map(empathies.map((e) => [e.targetId, e.score]));
     }
 
-    const wordEmpathized = userId
-      ? !!(await prisma.empathy.findUnique({
+    const wordEmpathy = userId
+      ? await prisma.empathy.findUnique({
           where: {
             userId_targetType_targetId: {
               userId,
@@ -179,73 +181,91 @@ export async function getWordDetail(
               targetId: wordId,
             },
           },
-        }))
-      : false;
+        })
+      : null;
 
-    return { userConnectionEmpathies, wordEmpathized };
+    return { userConnectionScores, userWordScore: wordEmpathy?.score ?? 0 };
   }
 
   const wordPayload = {
     id: word.id,
     text: displayWord(word.text, word.status),
     empathyCount: word.empathyCount,
+    score: word.empathyCount,
     status: word.status as WordStatus,
     canReport: word.status === "ACTIVE",
   };
 
-  if (direction === "out") {
-    const connections = await prisma.wordConnection.findMany({
+  const [outgoing, incoming] = await Promise.all([
+    prisma.wordConnection.findMany({
       where: { sourceWordId: wordId },
       include: { targetWord: true },
       orderBy: { empathyCount: "desc" },
-      take: 50,
-    });
-    const { userConnectionEmpathies, wordEmpathized } = await getUserEmpathySets(
-      connections.map((c) => c.id),
-    );
+      take: 60,
+    }),
+    prisma.wordConnection.findMany({
+      where: { targetWordId: wordId },
+      include: { sourceWord: true },
+      orderBy: { empathyCount: "desc" },
+      take: 60,
+    }),
+  ]);
 
-    return {
-      word: wordPayload,
-      direction,
-      connections: connections.map((c) => ({
-        id: c.id,
-        word: {
-          id: c.targetWord.id,
-          text: displayWord(c.targetWord.text, c.targetWord.status),
-          empathyCount: c.targetWord.empathyCount,
-        },
-        empathyCount: c.empathyCount,
-        userEmpathized: userConnectionEmpathies.has(c.id),
-      })),
-      userWordEmpathized: wordEmpathized,
-      sampleSufficient: true,
-    };
+  type LinkedRow = {
+    id: string;
+    word: (typeof outgoing)[0]["targetWord"];
+    empathyCount: number;
+    linkSourceId: string;
+    linkTargetId: string;
+  };
+
+  const byWordId = new Map<string, LinkedRow>();
+
+  for (const c of outgoing) {
+    const existing = byWordId.get(c.targetWord.id);
+    if (existing && existing.empathyCount >= c.empathyCount) continue;
+    byWordId.set(c.targetWord.id, {
+      id: c.id,
+      word: c.targetWord,
+      empathyCount: c.empathyCount,
+      linkSourceId: wordId,
+      linkTargetId: c.targetWord.id,
+    });
   }
 
-  const connections = await prisma.wordConnection.findMany({
-    where: { targetWordId: wordId },
-    include: { sourceWord: true },
-    orderBy: { empathyCount: "desc" },
-    take: 50,
-  });
-  const { userConnectionEmpathies, wordEmpathized } = await getUserEmpathySets(
-    connections.map((c) => c.id),
-  );
+  for (const c of incoming) {
+    const existing = byWordId.get(c.sourceWord.id);
+    if (existing && existing.empathyCount >= c.empathyCount) continue;
+    byWordId.set(c.sourceWord.id, {
+      id: c.id,
+      word: c.sourceWord,
+      empathyCount: c.empathyCount,
+      linkSourceId: c.sourceWord.id,
+      linkTargetId: wordId,
+    });
+  }
+
+  const connections = [...byWordId.values()].sort((a, b) => b.empathyCount - a.empathyCount).slice(0, 80);
+  const { userConnectionScores, userWordScore } = await getUserScoreData(connections.map((c) => c.id));
 
   return {
     word: wordPayload,
-    direction,
+    direction: "both" as const,
     connections: connections.map((c) => ({
       id: c.id,
       word: {
-        id: c.sourceWord.id,
-        text: displayWord(c.sourceWord.text, c.sourceWord.status),
-        empathyCount: c.sourceWord.empathyCount,
+        id: c.word.id,
+        text: displayWord(c.word.text, c.word.status),
+        empathyCount: c.word.empathyCount,
+        score: c.word.empathyCount,
       },
       empathyCount: c.empathyCount,
-      userEmpathized: userConnectionEmpathies.has(c.id),
+      score: c.empathyCount,
+      userScore: userConnectionScores.get(c.id) ?? 0,
+      linkSourceId: c.linkSourceId,
+      linkTargetId: c.linkTargetId,
     })),
-    userWordEmpathized: wordEmpathized,
+    userWordScore,
     sampleSufficient: true,
   };
 }
@@ -276,12 +296,13 @@ type WordDetailConnection = {
   id: string;
   word: { id: string; text: string; empathyCount: number };
   empathyCount: number;
+  linkSourceId?: string;
+  linkTargetId?: string;
 };
 
 export function buildMindMapFromWordDetail(
   word: { id: string; text: string; empathyCount: number },
   connections: WordDetailConnection[],
-  direction: "out" | "in",
 ): MindMapGraph {
   const nodes: MindMapNode[] = [
     {
@@ -298,29 +319,17 @@ export function buildMindMapFromWordDetail(
     })),
   ];
 
-  const links: MindMapLink[] = connections.map((c) =>
-    direction === "out"
-      ? {
-          source: word.id,
-          target: c.word.id,
-          empathyCount: c.empathyCount,
-          connectionId: c.id,
-        }
-      : {
-          source: c.word.id,
-          target: word.id,
-          empathyCount: c.empathyCount,
-          connectionId: c.id,
-        },
-  );
+  const links: MindMapLink[] = connections.map((c) => ({
+    source: c.linkSourceId ?? word.id,
+    target: c.linkTargetId ?? c.word.id,
+    empathyCount: c.empathyCount,
+    connectionId: c.id,
+  }));
 
   return { nodes, links, centerId: word.id };
 }
 
-export async function getWordMindMap(
-  wordId: string,
-  direction: "out" | "in" = "out",
-): Promise<MindMapGraph | null> {
+export async function getWordMindMap(wordId: string): Promise<MindMapGraph | null> {
   const word = await prisma.word.findUnique({ where: { id: wordId } });
   if (!word) return null;
 
@@ -334,50 +343,53 @@ export async function getWordMindMap(
     group: "center",
   });
 
-  if (direction === "out") {
-    const connections = await prisma.wordConnection.findMany({
+  const [outgoing, incoming] = await Promise.all([
+    prisma.wordConnection.findMany({
       where: { sourceWordId: wordId },
       include: { targetWord: true },
       orderBy: { empathyCount: "desc" },
-      take: 30,
-    });
-    for (const c of connections) {
-      const linked = c.targetWord;
-      nodeMap.set(linked.id, {
-        id: linked.id,
-        text: displayWord(linked.text, linked.status),
-        empathyCount: linked.empathyCount,
-        group: "linked",
-      });
-      links.push({
-        source: word.id,
-        target: linked.id,
-        empathyCount: c.empathyCount,
-        connectionId: c.id,
-      });
-    }
-  } else {
-    const connections = await prisma.wordConnection.findMany({
+      take: 60,
+    }),
+    prisma.wordConnection.findMany({
       where: { targetWordId: wordId },
       include: { sourceWord: true },
       orderBy: { empathyCount: "desc" },
-      take: 30,
+      take: 60,
+    }),
+  ]);
+
+  for (const c of outgoing) {
+    const linked = c.targetWord;
+    nodeMap.set(linked.id, {
+      id: linked.id,
+      text: displayWord(linked.text, linked.status),
+      empathyCount: linked.empathyCount,
+      group: "linked",
     });
-    for (const c of connections) {
-      const linked = c.sourceWord;
+    links.push({
+      source: word.id,
+      target: linked.id,
+      empathyCount: c.empathyCount,
+      connectionId: c.id,
+    });
+  }
+
+  for (const c of incoming) {
+    const linked = c.sourceWord;
+    if (!nodeMap.has(linked.id)) {
       nodeMap.set(linked.id, {
         id: linked.id,
         text: displayWord(linked.text, linked.status),
         empathyCount: linked.empathyCount,
         group: "linked",
       });
-      links.push({
-        source: linked.id,
-        target: word.id,
-        empathyCount: c.empathyCount,
-        connectionId: c.id,
-      });
     }
+    links.push({
+      source: linked.id,
+      target: word.id,
+      empathyCount: c.empathyCount,
+      connectionId: c.id,
+    });
   }
 
   return {
@@ -401,18 +413,46 @@ export async function getTrendingMindMap(limit = 10): Promise<MindMapGraph> {
       group: index === 0 ? "center" : "trending",
     });
 
-    const connections = await prisma.wordConnection.findMany({
-      where: { sourceWordId: item.id },
-      include: { targetWord: true },
-      orderBy: { empathyCount: "desc" },
-      take: 4,
-    });
+    const [outgoing, incoming] = await Promise.all([
+      prisma.wordConnection.findMany({
+        where: { sourceWordId: item.id },
+        include: { targetWord: true },
+        orderBy: { empathyCount: "desc" },
+        take: 6,
+      }),
+      prisma.wordConnection.findMany({
+        where: { targetWordId: item.id },
+        include: { sourceWord: true },
+        orderBy: { empathyCount: "desc" },
+        take: 6,
+      }),
+    ]);
 
-    for (const c of connections) {
+    for (const c of outgoing) {
       nodeMap.set(c.targetWord.id, {
         id: c.targetWord.id,
         text: displayWord(c.targetWord.text, c.targetWord.status),
         empathyCount: c.targetWord.empathyCount,
+        group: "linked",
+      });
+
+      const key = [c.sourceWordId, c.targetWordId].sort().join("-");
+      if (linkKeys.has(key)) continue;
+      linkKeys.add(key);
+
+      links.push({
+        source: c.sourceWordId,
+        target: c.targetWordId,
+        empathyCount: c.empathyCount,
+        connectionId: c.id,
+      });
+    }
+
+    for (const c of incoming) {
+      nodeMap.set(c.sourceWord.id, {
+        id: c.sourceWord.id,
+        text: displayWord(c.sourceWord.text, c.sourceWord.status),
+        empathyCount: c.sourceWord.empathyCount,
         group: "linked",
       });
 

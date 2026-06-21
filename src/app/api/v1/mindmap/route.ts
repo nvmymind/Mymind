@@ -17,8 +17,7 @@ export async function GET(request: NextRequest) {
     return jsonError("wordId 또는 trending=1 이 필요합니다.");
   }
 
-  const direction = searchParams.get("direction") === "in" ? "in" : "out";
-  const graph = await getWordMindMap(wordId, direction);
+  const graph = await getWordMindMap(wordId);
   if (!graph) return jsonError("단어를 찾을 수 없습니다.", 404);
 
   return NextResponse.json(graph);

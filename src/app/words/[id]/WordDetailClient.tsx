@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import useSWR from "swr";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ConnectWordDialog } from "@/components/ConnectWordDialog";
-import { EmpathyButton } from "@/components/EmpathyButton";
+import { WordScoreControl } from "@/components/WordScoreControl";
 import { MindMap2D } from "@/components/MindMap2D";
 import { WordSearchBar } from "@/components/WordSearchBar";
 import type { SuggestItem } from "@/components/WordSuggestInput";
@@ -24,40 +24,48 @@ async function fetcher(url: string) {
 }
 
 type WordDetailResponse = {
-  word: { id: string; text: string; empathyCount: number; canReport: boolean };
-  direction: "out" | "in";
+  word: { id: string; text: string; empathyCount: number; score: number; canReport: boolean };
+  direction: "both";
   connections: Array<{
     id: string;
-    word: { id: string; text: string; empathyCount: number };
+    word: { id: string; text: string; empathyCount: number; score: number };
     empathyCount: number;
+    score: number;
+    linkSourceId: string;
+    linkTargetId: string;
   }>;
-  userWordEmpathized: boolean;
+  userWordScore: number;
 };
 
 type ConnectTarget = { id: string; text: string };
 
 export default function WordDetailClient() {
-  const { id } = useParams<{ id: string }>();
+  const { id: urlId } = useParams<{ id: string }>();
   const router = useRouter();
+  const [centerId, setCenterId] = useState(urlId);
   const [showPanel, setShowPanel] = useState(false);
   const [showReport, setShowReport] = useState(false);
   const [connectTarget, setConnectTarget] = useState<ConnectTarget | null>(null);
   const trendingSuggestions = useTrendingSuggestions(10, !!connectTarget);
 
+  useEffect(() => {
+    setCenterId(urlId);
+  }, [urlId]);
+
   const { data, mutate } = useSWR<WordDetailResponse>(
-    id ? `/api/v1/words/${id}?direction=out` : null,
+    centerId ? `/api/v1/words/${centerId}` : null,
     fetcher,
   );
 
   const { data: mindmap, mutate: mutateMap } = useSWR<MindMapGraph>(
-    id ? `/api/v1/mindmap?wordId=${id}&direction=out` : null,
+    centerId ? `/api/v1/mindmap?wordId=${centerId}` : null,
     fetcher,
   );
 
   const graph = useMemo(() => {
     if (mindmap?.nodes?.length) return mindmap;
     if (data?.word && data.connections) {
-      return buildMindMapFromWordDetail(data.word, data.connections, "out");
+      return buildMindMapFromWordDetail(data.word, data.connections);
     }
     return null;
   }, [mindmap, data]);
@@ -100,25 +108,28 @@ export default function WordDetailClient() {
     return items;
   }, [graph, connectTarget, data, trendingSuggestions]);
 
-  async function toggleWordEmpathy() {
+  async function submitWordScore(score: number) {
     if (!data?.word) return;
     const res = await fetch("/api/v1/empathy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetType: "WORD", targetId: data.word.id }),
+      body: JSON.stringify({ targetType: "WORD", targetId: data.word.id, score }),
     });
     if (res.status === 401) {
-      alert("공감하려면 본인인증이 필요합니다.");
+      alert("점수를 주려면 본인인증이 필요합니다.");
       return;
     }
-    if (res.ok) mutate();
+    if (res.ok) {
+      mutate();
+      mutateMap();
+    }
   }
 
   async function submitReport(reason: string) {
     const res = await fetch("/api/v1/reports", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ wordId: id, reason }),
+      body: JSON.stringify({ wordId: centerId, reason }),
     });
     if (res.status === 401) {
       alert("신고하려면 본인인증이 필요합니다.");
@@ -155,7 +166,9 @@ export default function WordDetailClient() {
   }
 
   function handleNodeClick(node: MindMapNode) {
-    router.push(`/words/${node.id}`);
+    if (node.id === centerId) return;
+    setCenterId(node.id);
+    router.replace(`/words/${node.id}`, { scroll: false });
   }
 
   function handleNodeDoubleClick(node: MindMapNode) {
@@ -193,9 +206,9 @@ export default function WordDetailClient() {
 
       <div className="relative min-h-0 flex-1 basis-0">
         <MindMap2D
-          key={id}
+          key={centerId}
           graph={graph}
-          centerId={id}
+          centerId={centerId}
           onNodeClick={handleNodeClick}
           onNodeDoubleClick={handleNodeDoubleClick}
           className="absolute inset-0"
@@ -218,16 +231,16 @@ export default function WordDetailClient() {
 
       {showPanel && (
         <div className="shrink-0 border-t border-[var(--border)] bg-[var(--background)] p-3 pb-20">
-          <p className="mb-2 text-sm font-semibold">
-            {data.word.text}{" "}
-            <span className="font-normal text-[var(--muted)]">❤️ {data.word.empathyCount}</span>
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <EmpathyButton
-              empathized={data.userWordEmpathized}
-              onClick={toggleWordEmpathy}
+          <p className="mb-2 text-sm font-semibold">{data.word.text}</p>
+          <div className="mb-3">
+            <WordScoreControl
+              totalScore={data.word.score}
+              userScore={data.userWordScore}
+              onSubmit={submitWordScore}
               size="sm"
             />
+          </div>
+          <div className="flex flex-wrap gap-2">
             {data.word.canReport && (
               <button
                 type="button"

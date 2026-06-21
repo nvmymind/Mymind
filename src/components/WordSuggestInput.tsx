@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
+import { ScoreBadge } from "@/components/ScoreBadge";
 
 export type SuggestItem = {
   id: string;
@@ -118,7 +119,7 @@ export function WordSuggestInput({
                       className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-[var(--background)]"
                     >
                       <span>{item.text}</span>
-                      <span className="text-xs text-[var(--muted)]">❤️ {item.empathyCount}</span>
+                      <ScoreBadge score={item.empathyCount} />
                     </button>
                   </li>
                 );
@@ -144,7 +145,7 @@ export function WordSuggestInput({
                     {item.text}
                     <span className="ml-2 text-[10px] text-[var(--accent)]">기존 단어</span>
                   </span>
-                  <span className="text-xs text-[var(--muted)]">❤️ {item.empathyCount}</span>
+                  <ScoreBadge score={item.empathyCount} />
                 </button>
               </li>
             ))}
