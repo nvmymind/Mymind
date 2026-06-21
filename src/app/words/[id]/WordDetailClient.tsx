@@ -37,7 +37,7 @@ type WordDetailResponse = {
   userWordScore: number;
 };
 
-type ConnectTarget = { id: string; text: string };
+type ConnectTarget = { id: string; text: string; score: number };
 
 export default function WordDetailClient() {
   const { id: urlId } = useParams<{ id: string }>();
@@ -108,21 +108,28 @@ export default function WordDetailClient() {
     return items;
   }, [graph, connectTarget, data, trendingSuggestions]);
 
-  async function submitWordScore(score: number) {
-    if (!data?.word) return;
+  async function submitWordScoreFor(wordId: string, score: number): Promise<number | undefined> {
     const res = await fetch("/api/v1/empathy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ targetType: "WORD", targetId: data.word.id, score }),
+      body: JSON.stringify({ targetType: "WORD", targetId: wordId, score }),
     });
     if (res.status === 401) {
       alert("점수를 주려면 본인인증이 필요합니다.");
-      return;
+      return undefined;
     }
     if (res.ok) {
+      const { totalScore } = await res.json();
       mutate();
       mutateMap();
+      return totalScore as number;
     }
+    return undefined;
+  }
+
+  async function submitWordScore(score: number) {
+    if (!data?.word) return;
+    await submitWordScoreFor(data.word.id, score);
   }
 
   async function submitReport(reason: string) {
@@ -172,7 +179,7 @@ export default function WordDetailClient() {
   }
 
   function handleNodeDoubleClick(node: MindMapNode) {
-    setConnectTarget({ id: node.id, text: node.text });
+    setConnectTarget({ id: node.id, text: node.text, score: node.empathyCount });
   }
 
   if (!data?.word || !graph) {
@@ -215,17 +222,20 @@ export default function WordDetailClient() {
         />
         {linkedCount === 0 && (
           <p className="pointer-events-none absolute bottom-12 left-0 right-0 text-center text-xs text-[var(--muted)]">
-            더블클릭으로 연결 단어 추가
+            더블클릭으로 점수·연결 단어 추가
           </p>
         )}
       </div>
 
       {connectTarget && (
         <ConnectWordDialog
+          wordId={connectTarget.id}
           sourceText={connectTarget.text}
+          totalScore={connectTarget.score}
           recommendations={connectRecommendations}
           onClose={() => setConnectTarget(null)}
           onConnect={(text) => addConnection(connectTarget.id, text)}
+          onSubmitScore={(score) => submitWordScoreFor(connectTarget.id, score)}
         />
       )}
 

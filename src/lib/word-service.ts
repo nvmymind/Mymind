@@ -277,6 +277,7 @@ export type MindMapNode = {
   text: string;
   empathyCount: number;
   group: "center" | "linked" | "trending";
+  depth?: number;
 };
 
 export type MindMapLink = {
@@ -316,6 +317,7 @@ export function buildMindMapFromWordDetail(
       text: c.word.text,
       empathyCount: c.word.empathyCount,
       group: "linked" as const,
+      depth: 1,
     })),
   ];
 
@@ -333,63 +335,83 @@ export async function getWordMindMap(wordId: string): Promise<MindMapGraph | nul
   const word = await prisma.word.findUnique({ where: { id: wordId } });
   if (!word) return null;
 
+  const MAX_DEPTH = 4;
+  const MAX_NODES = 200;
+  const MAX_LINKS = 500;
+
   const nodeMap = new Map<string, MindMapNode>();
   const links: MindMapLink[] = [];
+  const linkKeys = new Set<string>();
 
   nodeMap.set(word.id, {
     id: word.id,
     text: displayWord(word.text, word.status),
     empathyCount: word.empathyCount,
     group: "center",
+    depth: 0,
   });
 
-  const [outgoing, incoming] = await Promise.all([
-    prisma.wordConnection.findMany({
-      where: { sourceWordId: wordId },
-      include: { targetWord: true },
-      orderBy: { empathyCount: "desc" },
-      take: 60,
-    }),
-    prisma.wordConnection.findMany({
-      where: { targetWordId: wordId },
-      include: { sourceWord: true },
-      orderBy: { empathyCount: "desc" },
-      take: 60,
-    }),
-  ]);
+  let frontier = [wordId];
+  const visited = new Set<string>([wordId]);
 
-  for (const c of outgoing) {
-    const linked = c.targetWord;
-    nodeMap.set(linked.id, {
-      id: linked.id,
-      text: displayWord(linked.text, linked.status),
-      empathyCount: linked.empathyCount,
-      group: "linked",
-    });
-    links.push({
-      source: word.id,
-      target: linked.id,
-      empathyCount: c.empathyCount,
-      connectionId: c.id,
-    });
-  }
+  for (let depth = 0; depth < MAX_DEPTH && frontier.length > 0 && nodeMap.size < MAX_NODES; depth++) {
+    const [outgoing, incoming] = await Promise.all([
+      prisma.wordConnection.findMany({
+        where: { sourceWordId: { in: frontier } },
+        include: { targetWord: true },
+        orderBy: { empathyCount: "desc" },
+      }),
+      prisma.wordConnection.findMany({
+        where: { targetWordId: { in: frontier } },
+        include: { sourceWord: true },
+        orderBy: { empathyCount: "desc" },
+      }),
+    ]);
 
-  for (const c of incoming) {
-    const linked = c.sourceWord;
-    if (!nodeMap.has(linked.id)) {
-      nodeMap.set(linked.id, {
+    const nextFrontier: string[] = [];
+
+    const addNeighbor = (linked: (typeof outgoing)[0]["targetWord"], neighborId: string) => {
+      if (visited.has(neighborId) || nodeMap.size >= MAX_NODES) return;
+      visited.add(neighborId);
+      nodeMap.set(neighborId, {
         id: linked.id,
         text: displayWord(linked.text, linked.status),
         empathyCount: linked.empathyCount,
         group: "linked",
+        depth: depth + 1,
       });
+      nextFrontier.push(neighborId);
+    };
+
+    for (const c of outgoing) {
+      const key = [c.sourceWordId, c.targetWordId].sort().join("-");
+      if (!linkKeys.has(key) && links.length < MAX_LINKS) {
+        linkKeys.add(key);
+        links.push({
+          source: c.sourceWordId,
+          target: c.targetWordId,
+          empathyCount: c.empathyCount,
+          connectionId: c.id,
+        });
+      }
+      addNeighbor(c.targetWord, c.targetWordId);
     }
-    links.push({
-      source: linked.id,
-      target: word.id,
-      empathyCount: c.empathyCount,
-      connectionId: c.id,
-    });
+
+    for (const c of incoming) {
+      const key = [c.sourceWordId, c.targetWordId].sort().join("-");
+      if (!linkKeys.has(key) && links.length < MAX_LINKS) {
+        linkKeys.add(key);
+        links.push({
+          source: c.sourceWordId,
+          target: c.targetWordId,
+          empathyCount: c.empathyCount,
+          connectionId: c.id,
+        });
+      }
+      addNeighbor(c.sourceWord, c.sourceWordId);
+    }
+
+    frontier = nextFrontier;
   }
 
   return {

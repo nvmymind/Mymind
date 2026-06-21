@@ -2,7 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MindMapGraph, MindMapNode } from "@/lib/word-service";
-import { computeNodeBox, computeRadialLayout, type LayoutNode } from "@/lib/mindmap-layout";
+import {
+  computeContentBounds,
+  computeFitView,
+  computeNodeBox,
+  computeRadialLayout,
+  type LayoutNode,
+} from "@/lib/mindmap-layout";
 import { scoreToNodeColors } from "@/lib/score-color";
 
 type Props = {
@@ -106,7 +112,6 @@ export function MindMap2D({
   } | null>(null);
 
   const [size, setSize] = useState({ w: 360, h: 640 });
-  const [rotation, setRotation] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
 
@@ -136,17 +141,17 @@ export function MindMap2D({
     [graph, size.w, size.h],
   );
 
-  useEffect(() => {
-    setRotation(0);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
-  }, [graph, size.w, size.h]);
+  const bounds = useMemo(() => computeContentBounds(layout.nodes), [layout.nodes]);
 
-  const resetView = useCallback(() => {
-    setRotation(0);
-    setPan({ x: 0, y: 0 });
-    setZoom(1);
-  }, []);
+  const fitToContent = useCallback(() => {
+    const fit = computeFitView(bounds, size.w, size.h);
+    setPan(fit.pan);
+    setZoom(fit.zoom);
+  }, [bounds, size.w, size.h]);
+
+  useEffect(() => {
+    fitToContent();
+  }, [fitToContent, graph]);
 
   const pickNodeAt = useCallback(
     (clientX: number, clientY: number) => {
@@ -171,15 +176,12 @@ export function MindMap2D({
         nodeId: node.id,
         timer: setTimeout(() => {
           clickRef.current = null;
-          if (node.id === centerId) {
-            resetView();
-            return;
-          }
+          if (node.id === centerId) return;
           onNodeClick?.(node);
         }, DOUBLE_CLICK_MS),
       };
     },
-    [centerId, onNodeClick, onNodeDoubleClick, resetView],
+    [centerId, onNodeClick, onNodeDoubleClick],
   );
 
   useEffect(
@@ -223,11 +225,7 @@ export function MindMap2D({
     }
 
     if (drag.active) {
-      setRotation((r) => r + dx * 0.45);
-      setPan((p) => ({
-        x: p.x + dx * 0.35,
-        y: p.y + dy * 0.35,
-      }));
+      setPan((p) => ({ x: p.x + dx, y: p.y + dy }));
     }
   }, []);
 
@@ -246,16 +244,23 @@ export function MindMap2D({
     [handleNodeTap, pickNodeAt],
   );
 
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? -0.08 : 0.08;
-    setZoom((z) => Math.max(0.65, Math.min(1.6, z + delta)));
-  }, []);
-
-  const viewTransform = useMemo(() => {
-    const { centerX, centerY } = layout;
-    return `translate(${pan.x}px, ${pan.y}px) translate(${size.w / 2}px, ${size.h / 2}px) rotate(${rotation}deg) scale(${zoom}) translate(${-centerX}px, ${-centerY}px)`;
-  }, [layout, pan.x, pan.y, rotation, zoom, size.w, size.h]);
+  const onWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.92 : 1.08;
+      const cx = size.w / 2;
+      const cy = size.h / 2;
+      setZoom((prev) => {
+        const next = Math.max(0.25, Math.min(2.5, prev * factor));
+        setPan((p) => ({
+          x: cx - (cx - p.x) * (next / prev),
+          y: cy - (cy - p.y) * (next / prev),
+        }));
+        return next;
+      });
+    },
+    [size.w, size.h],
+  );
 
   return (
     <div
@@ -267,14 +272,19 @@ export function MindMap2D({
       onPointerCancel={onPointerUp}
       onWheel={onWheel}
     >
-      <div className="absolute inset-0 cursor-grab active:cursor-grabbing" style={{ transform: viewTransform }}>
+      <div
+        className="absolute left-0 top-0 cursor-grab active:cursor-grabbing"
+        style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: "0 0",
+        }}
+      >
         <svg
           ref={svgRef}
           width={layout.width}
           height={layout.height}
           viewBox={`0 0 ${layout.width} ${layout.height}`}
-          className="h-full w-full"
-          style={{ fontFamily: FONT }}
+          style={{ fontFamily: FONT, display: "block" }}
         >
           {layout.links.map((link, i) => (
             <line
@@ -283,8 +293,8 @@ export function MindMap2D({
               y1={link.source.y}
               x2={link.target.x}
               y2={link.target.y}
-              stroke="rgba(29, 155, 240, 0.45)"
-              strokeWidth={Math.max(1.2, Math.min(3.5, Math.log2(Math.abs(link.empathyCount) + 2)))}
+              stroke="rgba(29, 155, 240, 0.4)"
+              strokeWidth={Math.max(1, Math.min(3, Math.log2(Math.abs(link.empathyCount) + 2)))}
             />
           ))}
 
@@ -303,14 +313,18 @@ export function MindMap2D({
 
       <button
         type="button"
-        onClick={resetView}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          fitToContent();
+        }}
         className="absolute right-3 top-3 z-10 rounded-full border border-[var(--border)] bg-[var(--card)]/95 px-3 py-1.5 text-xs backdrop-blur"
       >
         ⊙ 초기화
       </button>
 
       <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[10px] text-[var(--muted)]">
-        드래그 → 지구본처럼 회전 · 클릭 → 중심 이동 · 더블클릭 → 연결 · 휠 → 확대/축소
+        드래그 → 좌우·상하 이동 · 클릭 → 중심 이동 · 더블클릭 → 점수·연결 · 휠 → 확대/축소
       </p>
     </div>
   );
